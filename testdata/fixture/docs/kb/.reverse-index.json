@@ -1,0 +1,100 @@
+{
+ "_generated_by": "kb graph --write",
+ "_what": "source path -> {articles that document it, tests that exercise it}. Answers \"I touched this file: what do I read, and where do the test updates go?\" `tests` is derived from real imports and exact stem reconstruction, never filename similarity. `articleTests` lists the subsystem-level guards each article names, which no single file imports. Generated: do not hand-edit.",
+ "owners": {
+  "app/api/__init__.py": {
+   "articles": [
+    "arch-api"
+   ],
+   "tests": [],
+   "suites": [
+    "smoke"
+   ]
+  },
+  "app/api/handler.py": {
+   "articles": [
+    "arch-api"
+   ],
+   "tests": [
+    "tests/test_handler.py"
+   ],
+   "suites": [
+    "regression",
+    "smoke"
+   ]
+  },
+  "app/api/models.py": {
+   "articles": [
+    "arch-api"
+   ],
+   "tests": [],
+   "suites": [
+    "smoke"
+   ]
+  },
+  "app/core/__init__.py": {
+   "articles": [
+    "arch-core"
+   ],
+   "tests": [],
+   "suites": [
+    "regression",
+    "smoke"
+   ]
+  },
+  "app/core/engine.py": {
+   "articles": [
+    "arch-core"
+   ],
+   "tests": [
+    "tests/test_core_engine.py"
+   ],
+   "suites": [
+    "regression",
+    "smoke"
+   ]
+  },
+  "app/core/util.py": {
+   "articles": [
+    "arch-core"
+   ],
+   "tests": [],
+   "suites": [
+    "regression",
+    "smoke"
+   ]
+  },
+  "app/legacy_export.py": {
+   "articles": [],
+   "tests": [],
+   "suites": [
+    "smoke"
+   ]
+  },
+  "web/client.js": {
+   "articles": [
+    "arch-web"
+   ],
+   "tests": [
+    "web/client.spec.js"
+   ],
+   "suites": [
+    "browser"
+   ]
+  },
+  "web/helpers.js": {
+   "articles": [
+    "arch-web"
+   ],
+   "tests": [],
+   "suites": [
+    "browser"
+   ]
+  }
+ },
+ "articleTests": {
+  "arch-core": [
+   "tests/test_core_engine.py"
+  ]
+ }
+}
