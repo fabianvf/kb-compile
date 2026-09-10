@@ -36,7 +36,12 @@ If it prints OK, there is nothing to compile. Say so and stop.
 ## 2. Reconcile each article
 
 For each article the output names, read the article and read the changed files
-it owns. You are looking for four specific things - not "does this feel
+it owns. If the article is large and the change is narrow, read one section
+rather than all of it:
+
+```bash
+kb read arch-scoring#INVARIANT
+``` You are looking for four specific things - not "does this feel
 current":
 
 1. **Statements that are now false.** A named function that was renamed, a
