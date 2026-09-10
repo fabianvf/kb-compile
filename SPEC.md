@@ -68,7 +68,7 @@ description.
 | Field | Required | Meaning |
 |---|---|---|
 | `id` | yes | Must equal the filename without `.md`. Enforced. |
-| `type` | yes | Must match the filename prefix per `article_types`. Enforced. |
+| `type` | only with a taxonomy | Must match the filename prefix per `article_types`. Enforced only when `article_types` is configured. |
 | `covers` | no | Globs of paths this article OWNS. Every glob must match at least one tracked file. Enforced. |
 | `gated_by` | no | Articles that must be read FIRST. Must resolve. Enforced. |
 | `see_also` | no | Outbound edges. Must resolve; may not be self. Enforced. |
@@ -252,8 +252,13 @@ Everything past that point is honesty.
 
 ## 6. Article types
 
-Types are declared in `article_types` and enforced against the filename
-prefix. A reasonable starting set:
+**Optional.** Omit `article_types` and the taxonomy is not enforced at all:
+articles may be named anything and `type:` is not required. The graph does not
+need it, so a repo with existing documentation should not have to rename every
+file to adopt this.
+
+When you do configure it, types are enforced against the filename prefix. A
+reasonable starting set:
 
 | Prefix | `type` | Holds |
 |---|---|---|
@@ -289,7 +294,8 @@ For reference, so you know what you get for free and what you must review for.
 
 **Enforced, fails the build:**
 
-- frontmatter present; `id` matches filename; `type` matches prefix
+- frontmatter present; `id` matches filename
+- `type` matches the filename prefix, when a taxonomy is configured
 - unknown frontmatter keys rejected
 - `gated_by:` / `see_also:` resolve, and no self-edge
 - intra-KB markdown links resolve

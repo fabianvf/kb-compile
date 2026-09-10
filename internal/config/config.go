@@ -40,9 +40,14 @@ type Config struct {
 	PathExtensions []string `json:"path_extensions"`
 
 	// ArticleTypes maps a filename prefix to the `type:` its frontmatter must
-	// declare. "arch-scoring.md" with prefix "arch" must say `type: arch`.
-	// The prefix set is also the allowed-filename set: an article whose prefix
-	// is not a key here fails.
+	// declare. "arch-scoring.md" with prefix "arch" must say `type: arch`, and
+	// the prefix set is also the allowed-filename set.
+	//
+	// OPTIONAL. Omit it and the taxonomy is not enforced at all: articles may
+	// be named anything and `type:` is not required. The graph does not need
+	// it - ownership, edges and the ratchets work the same either way - so a
+	// repo that already has docs/ should not have to rename every file to
+	// adopt this. Add it later if the taxonomy starts earning its keep.
 	ArticleTypes map[string]string `json:"article_types"`
 
 	// AmbiguityRoots are tried when a cited path like "scoring/base.py" fails
@@ -52,6 +57,8 @@ type Config struct {
 	AmbiguityRoots []string `json:"ambiguity_roots"`
 
 	// ExcludeSubstrings drops paths from the tracked-file inventory entirely.
+	// Defaults to the vendored-dependency directories that are commonly
+	// committed; set it explicitly to override rather than extend.
 	ExcludeSubstrings []string `json:"exclude_substrings"`
 
 	// TestRules decides what counts as a test file. Shared by the ratchet's
@@ -245,21 +252,31 @@ func Load(path string) (*Config, error) {
 	return &c, nil
 }
 
+// Finalize applies defaults and validates. Exported for tests that construct
+// a Config directly rather than loading one.
+func (c *Config) Finalize() error { return c.finalize() }
+
 func (c *Config) finalize() error {
 	if c.KBDir == "" {
 		c.KBDir = "docs/kb"
 	}
 	c.KBDir = strings.TrimSuffix(c.KBDir, "/")
-	if len(c.ArticleTypes) == 0 {
-		return fmt.Errorf("article_types is empty: the checker cannot tell a " +
-			"valid article filename from a stray .md without it")
-	}
 	if len(c.ProdRoots) == 0 {
 		return fmt.Errorf("prod_roots is empty: the orphan ratchet would " +
 			"govern nothing and pass vacuously")
 	}
 	if len(c.PathExtensions) == 0 {
 		c.PathExtensions = c.ProdExtensions
+	}
+	if c.ExcludeSubstrings == nil {
+		// Committed dependency trees are not this repo's source. Without
+		// this a Go repo with a vendor/ directory or a JS repo that commits
+		// node_modules starts with thousands of orphans, and a baseline
+		// nobody could ever work through is a baseline nobody reads.
+		c.ExcludeSubstrings = []string{
+			"node_modules/", "/vendor/", "vendor/", "/venv/", "/.venv/",
+			"site-packages/", "/third_party/",
+		}
 	}
 	for k, v := range c.NotRepoPaths {
 		if strings.TrimSpace(v) == "" {

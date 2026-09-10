@@ -62,7 +62,8 @@ func (c *Checker) PathIsKnown(p string) bool {
 }
 
 // CheckFrontmatter enforces that every article identifies itself when read in
-// isolation, and that its declared type matches its filename prefix.
+// isolation, and, where a taxonomy is configured, that its declared type
+// matches its filename prefix.
 func (c *Checker) CheckFrontmatter() {
 	prefixes := make([]string, 0, len(c.Cfg.ArticleTypes))
 	for p := range c.Cfg.ArticleTypes {
@@ -81,6 +82,9 @@ func (c *Checker) CheckFrontmatter() {
 		if a.DeclaredID != a.ID {
 			c.errf("%s: frontmatter `id: %s` does not match the filename "+
 				"(expected `id: %s`).", a.Path, a.DeclaredID, a.ID)
+		}
+		if len(c.Cfg.ArticleTypes) == 0 {
+			continue // no taxonomy configured; `type:` is not required
 		}
 		prefix := a.ID
 		if i := strings.Index(prefix, "-"); i >= 0 {

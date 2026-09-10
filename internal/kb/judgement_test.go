@@ -358,3 +358,83 @@ func TestStemLinkRejectsUniversalFilenames(t *testing.T) {
 		}
 	}
 }
+
+// TestTaxonomyIsOptional pins that a repo can adopt this without renaming its
+// existing documentation.
+//
+// The type prefix carries no graph meaning: ownership, edges and both ratchets
+// work identically without it. Requiring it made adoption start with a rename
+// of every file, which is friction bought with nothing.
+func TestTaxonomyIsOptional(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	// No article_types configured: any filename, and `type:` not required.
+	loose := &config.Config{ProdRoots: []string{"src"}}
+	p := write("authentication.md", "---\nid: authentication\n---\n# Auth\n")
+	var errs []string
+	a, err := ParseArticle(loose, p, "authentication", &errs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := New(loose, map[string]*Article{"authentication": a}, nil)
+	c.CheckFrontmatter()
+	if len(c.Errors) != 0 {
+		t.Errorf("an untyped article failed with no taxonomy configured: %v", c.Errors)
+	}
+
+	// With a taxonomy configured, the same article must fail: opting in means
+	// opting in, or the setting would be decorative.
+	strict := &config.Config{
+		ProdRoots:    []string{"src"},
+		ArticleTypes: map[string]string{"arch": "arch"},
+	}
+	c2 := New(strict, map[string]*Article{"authentication": a}, nil)
+	c2.CheckFrontmatter()
+	if len(c2.Errors) == 0 {
+		t.Error("a configured taxonomy did not reject an off-taxonomy filename")
+	}
+}
+
+// TestVendoredTreesAreExcludedByDefault pins that adoption does not begin with
+// thousands of orphans from committed dependencies.
+//
+// A baseline nobody could ever work through is a baseline nobody reads, and
+// the ratchet only works if people look at the list.
+func TestVendoredTreesAreExcludedByDefault(t *testing.T) {
+	cfg := &config.Config{ProdRoots: []string{"src"}, ProdExtensions: []string{".go", ".js"}}
+	if err := cfg.Finalize(); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{
+		"src/vendor/github.com/x/y.go",
+		"src/node_modules/pkg/index.js",
+		"src/third_party/lib.go",
+	} {
+		if cfg.IsProductionSource(p) {
+			t.Errorf("%s counted as production source; a committed dependency "+
+				"tree is not this repo's code", p)
+		}
+	}
+	if !cfg.IsProductionSource("src/app.go") {
+		t.Error("ordinary source was excluded")
+	}
+	// An explicit setting replaces the defaults rather than extending them,
+	// so a repo that genuinely documents its vendor tree can say so.
+	custom := &config.Config{
+		ProdRoots: []string{"src"}, ProdExtensions: []string{".go"},
+		ExcludeSubstrings: []string{"/generated/"},
+	}
+	if err := custom.Finalize(); err != nil {
+		t.Fatal(err)
+	}
+	if !custom.IsProductionSource("src/vendor/x.go") {
+		t.Error("an explicit exclude list did not replace the defaults")
+	}
+}

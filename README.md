@@ -20,8 +20,9 @@ Single static binary, no runtime. The repo describes itself in
 They fail differently, and only one of them produces a confidently-wrong
 article.
 
-**`kb graph`** validates structure. Every article declares `id`, `type`, what
-it `covers:`, and optionally what it is `gated_by:`. The checker fails on a
+**`kb graph`** validates structure. Every article declares `id`, what it
+`covers:`, and optionally a `type`, what it is `gated_by:`, and where it points
+next. The checker fails on a
 dangling article link, a `covers:` glob that matches nothing, a path an article
 names that git doesn't track, and a path that isn't repo-root-relative
 (`core/engine.py` is ambiguous, and ambiguity is how a stale path hides).
@@ -86,7 +87,16 @@ object. The shape *is* the design.
 ## Configuration
 
 Everything repo-specific is data. `testdata/fixture/.kb/config.json` is a
-complete worked example.
+complete worked example, but a minimal config is three lines:
+
+```jsonc
+{ "prod_roots": ["src"], "prod_extensions": [".py"] }
+```
+
+Most settings are opinions you can decline. The article-type taxonomy is
+optional; omit it and articles may be named anything. Vendored trees
+(`node_modules/`, `vendor/`, `site-packages/`) are excluded by default, so
+adoption does not start with thousands of orphans from code you did not write.
 
 Language support is **declarative** - adding one must not require a Go
 toolchain:
