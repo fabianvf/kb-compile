@@ -199,7 +199,21 @@ says nothing about, so the ratchet stops asking anyone to document them.
 Commit each batch. A single commit claiming 300 files is unreviewable, and this
 is precisely the work where review is the only quality control that exists.
 
-## 5. Finish
+## 5. Check the carve
+
+```bash
+kb eval
+```
+
+This asks whether the files that change together share an article, and scores
+it against a directory baseline. If the KB is not beating plain folders, the
+articles are filing rather than describing, and the worst-scoring changes it
+prints are the merges that would fix it.
+
+Run it after a batch, not after every article. It reads git history, so it
+needs enough articles to say anything.
+
+## 6. Finish
 
 When the baseline reaches zero, that is a real milestone: every production file
 now has an article that must be kept accurate.
