@@ -1,0 +1,17 @@
+{
+  "cmd/kb/main.go": "461a14d445fb9879104a58fdcda3bbc780807514c1fd21839719d5396d89082f",
+  "contrib/kb-imports-go.sh": "d96fde619e7972c510aef1a4272806af3610b597f14eef1e22627b350c508a18",
+  "hooks/hooks.json": "d5d6014eea1f3bb56c44d742f907fa63811c69d276ca1d6e84df8058db5bd23f",
+  "hooks/kb-fresh-gate.sh": "f5d40536529d5f8dcb459db5ee737d3b7d8ffb88065fe85a0e5f2dea2c39cbd2",
+  "internal/config/config.go": "64b8d107d16f18686a2ddc8a77c41aefbdb78f191f02056807aa01c3575e1f99",
+  "internal/kb/article.go": "00d8d4caa427a843bbb0b15b1c333d2f136b365d14230d75501c55a9852cb605",
+  "internal/kb/checks.go": "8307ab295fbfd084ab5099a8aede9cc884af0f66b467e8993e186fa1f2f2a73d",
+  "internal/kb/digest.go": "1bd6b9aa33348bfb4805087e0dc80111d072e93efd97e307cceff3a162ae9a66",
+  "internal/kb/eval.go": "0bd3733b48ddfba291728e7bdb7c0703f030e623d433d8be515c0c1ec1c03039",
+  "internal/kb/fresh.go": "dabf3d4662c117f2ed0d45339f23a3cbfa5e4ba58e79acee536818e27fa27f84",
+  "internal/kb/links.go": "f90c0711dc5841bdcd2885f1c98fa9f6e132428e256540baac2582734d29476b",
+  "internal/kb/ratchet.go": "2fc687229bc6449be5c94c6114d200f5181fd1810e4e95ecf148be74e3a8d12a",
+  "internal/kb/read.go": "1183ff62b2232e519573cf122376fb9227a966cd7d817f29a8c334c92c3a464e",
+  "internal/kb/reverseindex.go": "3b6043b3f838896d3c682bba5fd6ed2ccef00979225fe0ae95af90210a25ac4a",
+  "internal/repo/git.go": "1c94aa715fb6bbc01024860f7ff2d26b25c5c27c043de182b1a1eef65844ea0d"
+}

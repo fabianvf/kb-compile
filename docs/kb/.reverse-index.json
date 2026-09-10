@@ -1,0 +1,163 @@
+{
+ "_generated_by": "kb graph --write",
+ "_what": "source path -> {articles that document it, tests that exercise it}. Answers \"I touched this file: what do I read, and where do the test updates go?\" `tests` is derived from real imports and exact stem reconstruction, never filename similarity. `articleTests` lists the subsystem-level guards each article names, which no single file imports. Generated: do not hand-edit.",
+ "owners": {
+  "cmd/kb/main.go": {
+   "articles": [
+    "ref-surface"
+   ],
+   "tests": []
+  },
+  "contrib/kb-imports-go.sh": {
+   "articles": [
+    "arch-links"
+   ],
+   "tests": []
+  },
+  "hooks/hooks.json": {
+   "articles": [
+    "arch-gates"
+   ],
+   "tests": []
+  },
+  "hooks/kb-fresh-gate.sh": {
+   "articles": [
+    "arch-gates"
+   ],
+   "tests": []
+  },
+  "internal/config/config.go": {
+   "articles": [
+    "ref-surface"
+   ],
+   "tests": [
+    "internal/config/config_test.go",
+    "internal/kb/digest_test.go",
+    "internal/kb/golden_test.go",
+    "internal/kb/judgement_test.go",
+    "internal/kb/linkcommand_test.go"
+   ]
+  },
+  "internal/kb/article.go": {
+   "articles": [
+    "arch-gates"
+   ],
+   "tests": [
+    "internal/kb/digest_test.go",
+    "internal/kb/golden_test.go",
+    "internal/kb/judgement_test.go",
+    "internal/kb/linkcommand_test.go"
+   ]
+  },
+  "internal/kb/checks.go": {
+   "articles": [
+    "arch-gates"
+   ],
+   "tests": [
+    "internal/kb/digest_test.go",
+    "internal/kb/golden_test.go",
+    "internal/kb/judgement_test.go",
+    "internal/kb/linkcommand_test.go"
+   ]
+  },
+  "internal/kb/digest.go": {
+   "articles": [
+    "arch-retrieval"
+   ],
+   "tests": [
+    "internal/kb/digest_test.go",
+    "internal/kb/golden_test.go",
+    "internal/kb/judgement_test.go",
+    "internal/kb/linkcommand_test.go"
+   ]
+  },
+  "internal/kb/eval.go": {
+   "articles": [
+    "arch-retrieval"
+   ],
+   "tests": [
+    "internal/kb/digest_test.go",
+    "internal/kb/golden_test.go",
+    "internal/kb/judgement_test.go",
+    "internal/kb/linkcommand_test.go"
+   ]
+  },
+  "internal/kb/fresh.go": {
+   "articles": [
+    "arch-gates"
+   ],
+   "tests": [
+    "internal/kb/digest_test.go",
+    "internal/kb/golden_test.go",
+    "internal/kb/judgement_test.go",
+    "internal/kb/linkcommand_test.go"
+   ]
+  },
+  "internal/kb/links.go": {
+   "articles": [
+    "arch-links"
+   ],
+   "tests": [
+    "internal/kb/digest_test.go",
+    "internal/kb/golden_test.go",
+    "internal/kb/judgement_test.go",
+    "internal/kb/linkcommand_test.go"
+   ]
+  },
+  "internal/kb/ratchet.go": {
+   "articles": [
+    "arch-gates"
+   ],
+   "tests": [
+    "internal/kb/digest_test.go",
+    "internal/kb/golden_test.go",
+    "internal/kb/judgement_test.go",
+    "internal/kb/linkcommand_test.go"
+   ]
+  },
+  "internal/kb/read.go": {
+   "articles": [
+    "arch-retrieval"
+   ],
+   "tests": [
+    "internal/kb/digest_test.go",
+    "internal/kb/golden_test.go",
+    "internal/kb/judgement_test.go",
+    "internal/kb/linkcommand_test.go"
+   ]
+  },
+  "internal/kb/reverseindex.go": {
+   "articles": [
+    "arch-links"
+   ],
+   "tests": [
+    "internal/kb/digest_test.go",
+    "internal/kb/golden_test.go",
+    "internal/kb/judgement_test.go",
+    "internal/kb/linkcommand_test.go"
+   ]
+  },
+  "internal/repo/git.go": {
+   "articles": [
+    "arch-links"
+   ],
+   "tests": [
+    "internal/kb/digest_test.go",
+    "internal/kb/golden_test.go",
+    "internal/kb/judgement_test.go",
+    "internal/kb/linkcommand_test.go"
+   ]
+  }
+ },
+ "articleTests": {
+  "arch-gates": [
+   "internal/kb/judgement_test.go"
+  ],
+  "arch-links": [
+   "internal/kb/linkcommand_test.go"
+  ],
+  "arch-retrieval": [
+   "internal/kb/digest_test.go"
+  ]
+ }
+}

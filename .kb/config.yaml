@@ -1,0 +1,39 @@
+# What the KB governs in this repo. See SPEC.md for the article format.
+#
+# This repo eats its own cooking: the gates below run against this KB in CI,
+# so a change here that breaks the contract fails the build that ships the
+# tool enforcing it.
+
+kb_dir: docs/kb
+
+# cmd/ and internal/ are the program. contrib/ and hooks/ ship to users and
+# are as load-bearing as the Go: a broken hook silently stops gating.
+prod_roots: [cmd, internal, contrib, hooks]
+prod_extensions: [.go, .sh]
+
+# Wider than prod_extensions: articles cite the fixture's config and the
+# workflow file without owning them.
+path_extensions: [.go, .sh, .md, .yaml, .yml, .json]
+
+article_types: {arch: arch, recipe: recipe, ref: ref, policy: policy}
+
+ambiguity_roots: [internal, cmd]
+
+test_rules:
+  base_suffixes: [_test.go]
+
+source_extensions: [.go]
+
+# The real resolver rather than a regex over import lines. This is the
+# recommendation the README makes, so the repo had better take it.
+link_commands:
+  - name: go
+    command: [./contrib/kb-imports-go.sh]
+
+stem_rules:
+  - suffix: _test.go
+
+lang_families: {.go: go}
+
+not_repo_paths: {}
+generated_paths: {}
