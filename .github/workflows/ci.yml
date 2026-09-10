@@ -1,0 +1,24 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./...
+      # The golden tests shell out to git and stage a fixture repo, so they
+      # need an identity to commit with.
+      - name: configure git for the fixture
+        run: |
+          git config --global user.email ci@example.invalid
+          git config --global user.name ci
+      - run: go test ./...
