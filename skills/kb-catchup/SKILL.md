@@ -45,31 +45,67 @@ That is the exact set of production files with no KB home, derived from
 
 ## 2. Cluster into subsystems
 
-**Do not go file by file, and do not go directory by directory.** A subsystem
-is a set of files that *change together and share invariants*. Directory
-structure is a filing decision and the boundaries frequently cut across it.
+A subsystem is a set of files that **change together and share invariants**.
+The goal is one article per subsystem, roughly **5 to 20 files**. One file per
+article makes the KB a second copy of the tree; fifty means nobody reads it.
 
-Cluster with evidence, not vibes:
+**Start from the directory partition, then correct it with co-change.** Do not
+try to derive clusters from co-change alone. It looks principled and it does
+not work: co-change is a sparse graph, and any transitive grouping over it
+collapses into one giant component plus a long tail of singletons. Measured on
+a 509-commit repo with 130 orphans, union-find over pairs co-changing 3+ times
+gave exactly 1 cluster of 8 and 122 singletons, while the directory partition
+gave 42 usable groups.
+
+So:
 
 ```bash
-# What actually changes together - the strongest signal available.
-git log --format='%H' --since='18 months ago' -- <root>/ |
-  while read c; do git show --name-only --format= "$c"; echo '---'; done
-
-# Who imports whom.
-grep -rn "^import\|^from\|require(" <root>/ | head -50
+# 1. The starting partition. Directories are a real signal, especially in
+#    package-based languages where a directory IS the unit of import.
+grep -v '^#' docs/kb/.orphans-baseline.txt | grep -v '^$' |
+  sed 's|/[^/]*$||' | sort | uniq -c | sort -rn
 ```
 
-Co-change is the signal to trust. Two files that always appear in the same
-commit belong in one article whichever directories they live in; two files in
-the same directory that have never changed together probably do not.
+Then use co-change for the two corrections it is genuinely good at, which is
+telling you where the directory partition is *wrong*:
 
-Aim for **5–20 files per article**. One file per article means the KB is a
-second copy of the tree. Fifty means nobody reads it.
+```bash
+# 2. MERGE candidates: pairs in DIFFERENT directories that keep moving
+#    together. These are the boundaries the tree gets wrong.
+git log --format='%H' --name-only --no-merges |
+  awk '/^[0-9a-f]{40}$/{print "---"; next} NF{print}' |
+  python3 -c '
+import sys, itertools, collections
+groups, cur = [], []
+for l in sys.stdin:
+    l = l.strip()
+    if l == "---":
+        groups.append(cur); cur = []
+    elif l: cur.append(l)
+pair = collections.Counter()
+for g in groups:
+    if 1 < len(g) <= 12:
+        for a, b in itertools.combinations(sorted(set(g)), 2):
+            if a.rsplit("/", 1)[0] != b.rsplit("/", 1)[0]:
+                pair[(a, b)] += 1
+for (a, b), n in pair.most_common(20):
+    print(n, a, b)'
+```
+
+A pair near the top of that list, in two different directories, is a merge
+candidate: put both in one article.
+
+For the opposite correction, look at a large directory and ask whether its
+files ever appear in the same commit. A directory whose files never co-change
+is usually two subsystems sharing a folder, and it should split.
+
+Neither correction is automatic. The commands produce candidates; you decide,
+because the question is whether they share INVARIANTS, and only reading them
+answers that.
 
 Write the cluster list down and show it before writing anything. A wrong
-clustering is expensive to undo later - articles get linked, cited and gated
-against - and cheap to fix now.
+clustering is expensive to undo later, since articles get linked, cited and
+gated against, and it is cheap to fix now.
 
 ## 3. Write one article per cluster
 
@@ -167,8 +203,9 @@ refuses to grow the list; it will happily shrink it because a glob got wide.
 
 ## Failure modes
 
-**Directory-shaped articles.** One article per directory produces a KB that
-mirrors the tree and adds nothing. Cluster by co-change.
+**Taking the directory partition as final.** It is the starting point, not the
+answer. If no article ended up merging two directories or splitting one, the
+co-change pass was skipped and the KB is just a second copy of the tree.
 
 **Glob creep.** `covers: src/**` on one article silently owns everything and
 drives the orphan count to zero while documenting almost none of it. If a glob
