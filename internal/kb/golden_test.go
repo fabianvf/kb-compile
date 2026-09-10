@@ -119,7 +119,8 @@ func loadArticles(t *testing.T, cfg *config.Config) (map[string]*kb.Article, []s
 	articles := map[string]*kb.Article{}
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".md") || name == "INDEX.md" {
+		if e.IsDir() || !strings.HasSuffix(name, ".md") ||
+			name == "INDEX.md" || name == "DIGEST.md" {
 			continue
 		}
 		a, err := kb.ParseArticle(cfg, filepath.Join(cfg.KBDir, name),

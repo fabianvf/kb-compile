@@ -33,6 +33,11 @@ USAGE
                          recorded compile.
   kb compiled            Record that a compile just reviewed the current
                          content. Never run this from a hook.
+  kb read ID[#SECTION]   Print an article, or one section of it. Reading one
+                         section of a large article costs a few hundred tokens
+                         instead of tens of thousands.
+  kb eval                Score the article boundaries against git history: do
+                         the files that change together share an article?
   kb version
 
 FLAGS
@@ -53,13 +58,16 @@ func main() {
 	root := fs.String("root", "", "repository root")
 	write := fs.Bool("write", false, "regenerate derived artifacts")
 	quiet := fs.Bool("quiet", false, "suppress the OK line")
+	evalCommits := fs.Int("commits", 500, "eval: how much history to walk")
+	evalMaxFiles := fs.Int("max-files", 15, "eval: skip commits touching more than this")
+	evalWorst := fs.Int("worst", 5, "eval: how many low-scoring changes to show")
 	_ = fs.Parse(os.Args[2:])
 
 	switch cmd {
 	case "version":
 		fmt.Println("kb 0.1.0-dev")
 		return
-	case "graph", "fresh", "compiled":
+	case "graph", "fresh", "compiled", "read", "eval":
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		return
@@ -94,6 +102,20 @@ func main() {
 		die("%v", err)
 	}
 
+	if cmd == "read" {
+		if fs.NArg() != 1 {
+			die("usage: kb read <article>[#SECTION]")
+		}
+		id, section, _ := strings.Cut(fs.Arg(0), "#")
+		id = strings.TrimSuffix(id, ".md")
+		text, err := kb.ReadArticle(cfg.KBDir, id, section)
+		if err != nil {
+			die("%v", err)
+		}
+		fmt.Println(strings.TrimRight(text, "\n"))
+		return
+	}
+
 	tracked, err := repo.TrackedFiles(cfg.ExcludeSubstrings)
 	if err != nil {
 		die("%v", err)
@@ -125,6 +147,9 @@ func main() {
 		testLinks := kb.MergeLinks(c.BuildTestLinks(), c.RunLinkCommands())
 		payload := c.BuildReverseIndex(ownership, testLinks, c.ExtraLinks())
 		c.CheckReverseIndex(payload, *write)
+		digest := c.BuildDigest()
+		c.CheckArticleSize(digest)
+		c.CheckDigest(digest, *write)
 		report(c, cfg, ownership, *quiet)
 
 	case "fresh":
@@ -136,6 +161,17 @@ func main() {
 			return
 		}
 		runFresh(cfg, c.OwnedForFreshness(ownership))
+
+	case "eval":
+		if len(c.Errors) > 0 {
+			report(c, cfg, ownership, *quiet)
+			return
+		}
+		res, err := c.Evaluate(ownership, *evalCommits, *evalMaxFiles)
+		if err != nil {
+			die("%v", err)
+		}
+		fmt.Print(res.Render(*evalWorst))
 
 	case "compiled":
 		if len(c.Errors) > 0 {
@@ -206,7 +242,9 @@ func loadArticles(cfg *config.Config) (map[string]*kb.Article, []string, error) 
 			continue
 		}
 		id := strings.TrimSuffix(name, ".md")
-		if id == "INDEX" {
+		// INDEX and DIGEST live in the KB directory and are not articles:
+		// one is the hub, the other is generated from the articles.
+		if id == "INDEX" || id == "DIGEST" {
 			continue
 		}
 		a, err := kb.ParseArticle(cfg, filepath.Join(cfg.KBDir, name), id, &errs)

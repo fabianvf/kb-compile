@@ -117,6 +117,11 @@ type Config struct {
 	// language and adapters for another.
 	LinkCommands []LinkCommand `json:"link_commands"`
 
+	// MaxArticleTokens warns above this estimated size. Advisory: the right
+	// length is a judgement, and a build that failed on prose length would
+	// just get the threshold raised. Set 0 to disable.
+	MaxArticleTokens int `json:"max_article_tokens"`
+
 	// ExtraLinkKinds add repo-specific columns to the reverse index, for
 	// relationships no import edge can reveal — an end-to-end suite whose
 	// selectors cover a screen flow rather than a file, for instance.
@@ -314,6 +319,11 @@ func (c *Config) finalize() error {
 	if len(c.PathExtensions) == 0 {
 		c.PathExtensions = c.ProdExtensions
 	}
+	if c.MaxArticleTokens == 0 {
+		// Generous on purpose. This should catch the article that has become
+		// a subsystem manual, not nudge every article toward a target length.
+		c.MaxArticleTokens = 12000
+	}
 	if c.ExcludeSubstrings == nil {
 		// Committed dependency trees are not this repo's source. Without
 		// this a Go repo with a vendor/ directory or a JS repo that commits
@@ -425,6 +435,7 @@ func (c *Config) ReverseIndexPath() string    { return c.KBDir + "/.reverse-inde
 func (c *Config) OrphanBaselinePath() string  { return c.KBDir + "/.orphans-baseline.txt" }
 func (c *Config) DeadEndBaselinePath() string { return c.KBDir + "/.dead-ends-baseline.txt" }
 func (c *Config) ManifestPath() string        { return c.KBDir + "/.compiled-sources.json" }
+func (c *Config) DigestPath() string          { return c.KBDir + "/DIGEST.md" }
 func (c *Config) IndexPath() string           { return c.KBDir + "/INDEX.md" }
 
 // IsTestFile is a PATH rule. Shared by the ratchet's scope and the link

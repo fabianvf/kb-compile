@@ -229,6 +229,17 @@ then adding an undocumented file and re-running `--write` would silently
 legitimise it: the gate keeps passing and stops gating. That is worse than
 failing, because nobody looks at a green build.
 
+### `DIGEST.md` - derived
+
+Every article's identity, edges, size and headline claims, generated from the
+articles. The routing table an agent reads before choosing what to open: on a
+270k-token corpus it is ~7k, so a wrong guess here is cheap and a wrong guess
+there is not.
+
+Because it is derived it can never disagree with the articles. A
+hand-maintained summary would drift, and a drifted routing table sends agents
+confidently to the wrong place.
+
 ### `.compiled-sources.json` - a judgement
 
 A content hash per KB-owned source file, recorded at the last compile. It

@@ -10,6 +10,8 @@ the stale article, it acts on it. This enforces the two things that stop that.
 kb graph      Do the KB's edges RESOLVE, and is every source file owned?
 kb fresh      Has anyone LOOKED at the KB since the code moved?
 kb compiled   Record that a compile just reviewed the current content.
+kb read       Print one article, or one SECTION of one article.
+kb eval       Score the article boundaries against git history.
 ```
 
 Single static binary, no runtime. The repo describes itself in
@@ -44,6 +46,60 @@ updates go?" as a lookup instead of a grep.
 hash per KB-owned file, recorded at the last compile. The check fails when any
 of them differs from what was reviewed, and names the owning articles so the
 re-read is scoped rather than "go read the KB".
+
+## Reading the KB without loading it
+
+The consumer is an agent with a context budget, and the arithmetic is brutal.
+Measured on a real 35-article KB: **~270k tokens for the corpus**, ~6k for the
+median article, ~24k for the largest. A hub file of links tells an agent every
+article's name and nothing about what any of them knows, so the cheapest way
+to answer "where does scoring happen" was to guess and open a 24k article.
+
+Two generated artifacts close that gap.
+
+**`DIGEST.md`** is every article's identity, edges, size and headline claims,
+at ~150 tokens each. On that same KB it is **7.4k against 270k**: the whole
+corpus becomes legible for under 3% of it, and the agent opens one article on
+purpose instead of two by trial. Derived, so it regenerates freely and cannot
+drift from the articles it routes to. This is the repo analogue of `llms.txt`.
+
+**`kb read <article>#SECTION`** makes the `§ SECTION` citation convention
+executable. On the 24k article above, pulling just its `INVARIANT` section
+costs **3.3k**. A wrong section name lists the real ones rather than failing
+bare, so a bad guess does not cost a second round trip.
+
+`max_article_tokens` warns when an article passes the size where it stops
+being read in full (default 12k, advisory). An agent under context pressure
+reads the first third; what is past that is functionally not in the KB while
+still costing a review on every compile.
+
+## Does it actually help?
+
+`kb eval` answers the one part of that question that needs no model in the
+loop: **do the files that change together share an article?**
+
+For each historical commit touching two or more KB-owned files, it takes the
+articles owning any one of them and asks how much of the rest of the change
+those articles also cover. Recall alone is gamed by a single article owning the
+repo, so it reports two bounds: the **reach** (how many files you had to read
+to get that recall) and a **directory baseline** (the same measurement with
+each folder treated as an article, which is what the tree already tells you for
+free).
+
+Without the control, a recall number is not a result. On the KB above:
+
+```
+KB          recall 0.57   reading 81 files on average
+directories recall 0.41   reading 26 files on average
+```
+
+Sixteen points of boundary information the tree does not carry, bought with 3x
+the reading. It also prints the worst-scoring changes, which are exactly the
+file sets that move together and that no single article describes: the signal
+for a merge.
+
+What it does not measure is whether an article's prose is any good. A KB of
+perfectly-bounded articles full of restated code scores well here.
 
 ## The distinction the whole design rests on
 
