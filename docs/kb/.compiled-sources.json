@@ -8,9 +8,9 @@
   "internal/kb/checks.go": "8307ab295fbfd084ab5099a8aede9cc884af0f66b467e8993e186fa1f2f2a73d",
   "internal/kb/digest.go": "1bd6b9aa33348bfb4805087e0dc80111d072e93efd97e307cceff3a162ae9a66",
   "internal/kb/eval.go": "0bd3733b48ddfba291728e7bdb7c0703f030e623d433d8be515c0c1ec1c03039",
-  "internal/kb/fresh.go": "dabf3d4662c117f2ed0d45339f23a3cbfa5e4ba58e79acee536818e27fa27f84",
+  "internal/kb/fresh.go": "85f2e9475c55b7eeea9160d36bd05fc3ab40411cc6020d4c3a0e613cb27d4a9a",
   "internal/kb/links.go": "f90c0711dc5841bdcd2885f1c98fa9f6e132428e256540baac2582734d29476b",
-  "internal/kb/ratchet.go": "2fc687229bc6449be5c94c6114d200f5181fd1810e4e95ecf148be74e3a8d12a",
+  "internal/kb/ratchet.go": "0c80a4d76b8faeb9dbce2c73cfe5a326d86ed44a7291a1b5ca7a5bbd9782934f",
   "internal/kb/read.go": "1183ff62b2232e519573cf122376fb9227a966cd7d817f29a8c334c92c3a464e",
   "internal/kb/reverseindex.go": "3b6043b3f838896d3c682bba5fd6ed2ccef00979225fe0ae95af90210a25ac4a",
   "internal/repo/git.go": "1c94aa715fb6bbc01024860f7ff2d26b25c5c27c043de182b1a1eef65844ea0d"

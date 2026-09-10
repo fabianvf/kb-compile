@@ -38,6 +38,13 @@ regenerating could widen a baseline, then adding an undocumented file and
 re-running `--write` silently legitimises it. The gate keeps passing and stops
 gating, which is worse than failing because nobody looks at a green build.
 
+**A missing baseline is not permission to start over.** It reads as empty, so
+every entry counts as growth and `--write` refuses; `KB_RATCHET_INIT=1` is the
+one-time adoption path. Without this, `rm .orphans-baseline.txt && kb graph
+--write` grandfathered anything, permanently and silently, and the read-only
+error recommended that exact command. Absence is indistinguishable from
+deletion, which is the same reasoning that makes a missing manifest a failure.
+
 **The freshness manifest is never regenerated automatically.** Not by a hook,
 not by CI, not bundled into another target. It records a judgement, and a
 judgement regenerated on its own asserts nothing. `hooks/kb-fresh-gate.sh`
@@ -52,6 +59,12 @@ look like drift: bringing trunk into a branch changes the tree, so the branch
 owed a compile for files reviewed on the other side. Per-file hashes merge the
 way git merges everything else, and two branches compiling the same file
 conflict correctly because one of their reviews is about to lose.
+
+**A conflicted manifest names the situation and rules out the obvious fix.**
+Per-file state means two branches compiling the same file conflict on purpose,
+so hitting one is normal rather than exceptional. Resolving it with `kb
+compiled` would re-record every file on both sides as reviewed, including the
+ones nobody looked at, which is the one use that defeats the gate.
 
 **A missing manifest FAILS rather than skipping.** The rejected alternative,
 treating absence as "nothing to check", makes `rm .compiled-sources.json` a

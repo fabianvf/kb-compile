@@ -14,6 +14,7 @@ package kb
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/fabianvf/kb-compile/internal/config"
@@ -436,5 +437,90 @@ func TestVendoredTreesAreExcludedByDefault(t *testing.T) {
 	}
 	if !custom.IsProductionSource("src/vendor/x.go") {
 		t.Error("an explicit exclude list did not replace the defaults")
+	}
+}
+
+// ── Found by a review of the implementation this was ported from ───────────
+
+// TestRatchetBootstrapIsExplicit pins that a missing baseline is not a bypass.
+//
+// The growth guard used to be skipped entirely when the file was absent, so
+// `rm .orphans-baseline.txt && kb graph --write` widened the ratchet silently
+// and permanently. The read-only error recommended that exact command.
+//
+// Absence is indistinguishable from deletion, which is the same reasoning that
+// makes a missing freshness manifest a failure rather than a skip. Bootstrap
+// stays possible, but has to be asked for.
+func TestRatchetBootstrapIsExplicit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "baseline.txt")
+
+	c := newTestChecker(t, nil)
+	c.writeRatchet(path, "# h\n", []string{"lib/a.dart", "lib/b.dart"}, "orphans", "claim them")
+	if len(c.Errors) == 0 {
+		t.Fatal("writing entries with no baseline present was allowed; deleting " +
+			"the file is now a way to widen the ratchet")
+	}
+	if !anyContains(c.Errors, BootstrapEnv) {
+		t.Errorf("the refusal does not name the bootstrap escape hatch, so a "+
+			"first-time adopter is stuck: %v", c.Errors)
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Error("the baseline was written despite the refusal")
+	}
+
+	// Bootstrap, explicitly.
+	t.Setenv(BootstrapEnv, "1")
+	c2 := newTestChecker(t, nil)
+	c2.writeRatchet(path, "# h\n", []string{"lib/a.dart", "lib/b.dart"}, "orphans", "claim them")
+	if len(c2.Errors) != 0 {
+		t.Fatalf("explicit bootstrap was refused: %v", c2.Errors)
+	}
+	got, existed := readBaseline(path)
+	if !existed || len(got) != 2 {
+		t.Errorf("bootstrap wrote %v (existed=%v), want both entries", got, existed)
+	}
+}
+
+// TestMissingBaselineDoesNotRecommendTheBypass pins the error text.
+//
+// The old message said "Run `kb graph --write` to create it", which was the
+// bypass. An error that recommends the hole is worse than no error.
+func TestMissingBaselineDoesNotRecommendTheBypass(t *testing.T) {
+	c := newTestChecker(t, nil)
+	c.checkRatchet(filepath.Join(t.TempDir(), "absent.txt"), nil, func(string) {}, "orphans")
+	if len(c.Errors) == 0 {
+		t.Fatal("a missing baseline was accepted")
+	}
+	joined := strings.Join(c.Errors, "\n")
+	if strings.Contains(joined, "Run `kb graph --write`") {
+		t.Errorf("the error recommends the bypass it exists to close: %s", joined)
+	}
+	if !strings.Contains(joined, "Restore it from git") {
+		t.Errorf("the error does not say what to actually do: %s", joined)
+	}
+}
+
+// TestManifestConflictIsExplained pins the message for the failure the design
+// deliberately produces.
+//
+// Per-file state means two branches compiling the same file conflict on
+// purpose. Hitting that is normal, so the error has to rule out the obvious
+// fix: `kb compiled` would resolve it by re-recording every file on both sides
+// as reviewed, including the ones nobody looked at.
+func TestManifestConflictIsExplained(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".compiled-sources.json")
+	conflicted := "{\n<<<<<<< HEAD\n  \"a.go\": \"aaa\"\n=======\n  \"a.go\": \"bbb\"\n>>>>>>> other\n}\n"
+	if err := os.WriteFile(path, []byte(conflicted), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := Freshness(path, map[string][]string{"a.go": {"arch-x"}})
+	if err == nil {
+		t.Fatal("a conflicted manifest parsed successfully")
+	}
+	for _, want := range []string{"merge conflict", "Do NOT resolve it with `kb compiled`"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error does not say %q: %v", want, err)
+		}
 	}
 }

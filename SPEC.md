@@ -224,6 +224,11 @@ A **ratchet** grandfathers what is already wrong, fails anything new, and
 requires an entry that stops being wrong to be removed by regenerating. It may
 shrink and never grow - `--write` refuses to widen either list.
 
+A missing baseline counts as EMPTY rather than as permission to start over, so
+`--write` refuses there too; `KB_RATCHET_INIT=1` records a starting state once,
+at adoption. Otherwise deleting the file would be the bypass, and absence is
+indistinguishable from deletion.
+
 That refusal is the whole mechanism. If regenerating could widen a baseline,
 then adding an undocumented file and re-running `--write` would silently
 legitimise it: the gate keeps passing and stops gating. That is worse than

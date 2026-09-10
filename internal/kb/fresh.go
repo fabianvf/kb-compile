@@ -40,6 +40,7 @@ package kb
 // pass. That is why the compile skill prints what it checked.
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -83,7 +84,26 @@ func Freshness(manifestPath string, ownership map[string][]string) ([]Stale, map
 	missing := false
 	if data, err := os.ReadFile(manifestPath); err == nil {
 		if err := json.Unmarshal(data, &recorded); err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", manifestPath, err)
+			// A conflict here is EXPECTED, not exceptional: the per-file
+			// design means two branches compiling the same file conflict on
+			// purpose. So the error has to name the situation and, more
+			// importantly, rule out the obvious fix. `kb compiled` would
+			// resolve it by blanket-approving every file on both sides
+			// unreviewed, which is precisely the review that was about to be
+			// arbitrated.
+			if bytes.Contains(data, []byte("<<<<<<<")) {
+				return nil, nil, fmt.Errorf(
+					"%s has unresolved merge conflict markers.\n\n"+
+						"This is expected: two branches recorded a compile for "+
+						"the same file, and one of those reviews is about to "+
+						"lose. Resolve it by hand, keeping the hash from the "+
+						"side whose review you trust.\n\n"+
+						"Do NOT resolve it with `kb compiled`. That would "+
+						"re-record every file on both sides as reviewed, "+
+						"including the ones nobody looked at, which is the one "+
+						"use that defeats this gate.", manifestPath)
+			}
+			return nil, nil, fmt.Errorf("%s is not valid JSON: %w", manifestPath, err)
 		}
 	} else if os.IsNotExist(err) {
 		missing = true

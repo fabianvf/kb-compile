@@ -133,6 +133,9 @@ kb graph 2>&1 | head
 Expect it to fail on a missing KB directory. That is the correct failure at
 this point; it means the config loaded.
 
+After this, every regeneration is a plain `kb graph --write`, which may only
+shrink the baselines.
+
 **Re-run this step alone to change the config later** - adding a language,
 widening a root, swapping an adapter for a `link_commands` entry. Regenerate
 with `kb graph --write` afterwards and read the diff: widening `prod_roots` or
@@ -156,9 +159,17 @@ docs/kb/
 
 ## 5. Generate the baselines
 
+The first write is the one time a ratchet is allowed to start non-empty, so it
+has to be asked for explicitly:
+
 ```bash
-kb graph --write
+KB_RATCHET_INIT=1 kb graph --write
 ```
+
+Without that variable `--write` refuses to create a baseline with entries in
+it, and it should: a missing baseline is indistinguishable from a deleted one,
+so treating absence as "start fresh" would make `rm .orphans-baseline.txt`
+a way to grandfather anything. Use it once, here, and never again.
 
 This writes the reverse index and both baselines. **Read the orphan count out
 loud to yourself** - it is the size of the catchup job and worth knowing before
