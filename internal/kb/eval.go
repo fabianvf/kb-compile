@@ -196,6 +196,13 @@ func (c *Checker) Evaluate(ownership map[string][]string, maxCommits, maxFiles i
 	return res, nil
 }
 
+func ratio(a, b float64) float64 {
+	if b == 0 {
+		return 0
+	}
+	return a / b
+}
+
 type commitFiles struct {
 	sha, subject string
 	files        []string
@@ -243,21 +250,40 @@ func (r *EvalResult) Render(worstN int) string {
 	fmt.Fprintf(&b, "  directories recall %.2f   reading %.0f files on average\n\n",
 		r.BaseR, r.BaseCh)
 
+	// The verdict has to weigh both columns. Equal recall for half the
+	// reading is a win, and an earlier version called it "filing rather than
+	// describing" because it compared recall alone. Efficiency is recall per
+	// file read, which is what an agent actually spends.
 	delta := r.Recall - r.BaseR
+	eff, baseEff := ratio(r.Recall, r.Reach), ratio(r.BaseR, r.BaseCh)
 	switch {
+	case delta >= -0.02 && eff > baseEff*1.15:
+		fmt.Fprintf(&b, "  The KB gets %.0f%% more recall per file read than plain\n"+
+			"  directory structure. Its boundaries are doing work the tree\n"+
+			"  does not.\n\n", (eff/baseEff-1)*100)
 	case delta > 0.10:
 		fmt.Fprintf(&b, "  The KB recalls %.0f points more of each change than the\n"+
-			"  directory structure does. The articles are carrying boundary\n"+
-			"  information the tree does not.\n\n", delta*100)
-	case delta < -0.02:
-		fmt.Fprintf(&b, "  The KB recalls LESS than plain directories (%.0f points).\n"+
-			"  Its boundaries are cutting across the way the code changes, so\n"+
-			"  an agent would do better reading the folder.\n\n", -delta*100)
+			"  directory structure does, though it reads %.0f files to the\n"+
+			"  tree's %.0f. The articles carry boundary information the tree\n"+
+			"  does not, at a cost.\n\n", delta*100, r.Reach, r.BaseCh)
+	case delta < -0.02 && eff <= baseEff:
+		fmt.Fprintf(&b, "  The KB recalls LESS than plain directories (%.0f points)\n"+
+			"  and is no cheaper to read. Its boundaries cut across the way the\n"+
+			"  code changes, so an agent would do better reading the folder.\n\n",
+			-delta*100)
 	default:
-		b.WriteString("  The KB scores about the same as plain directory structure.\n" +
-			"  Its articles are filing rather than describing: an agent gets\n" +
-			"  the same routing from `ls`. Look at the worst cases below for\n" +
-			"  the merges that would change this.\n\n")
+		b.WriteString("  The KB scores about the same as plain directory structure,\n" +
+			"  on both recall and reading cost. Its articles are filing rather\n" +
+			"  than describing: an agent gets the same routing from `ls`. The\n" +
+			"  worst cases below are the merges that would change that.\n\n")
+	}
+
+	// A handful of commits is a coincidence, not a measurement.
+	if r.Commits < 30 {
+		fmt.Fprintf(&b, "  Only %d commits qualified, which is too few to conclude\n"+
+			"  much: the numbers above move a lot on one more change. Widen\n"+
+			"  --commits, or come back when the repo has more history.\n\n",
+			r.Commits)
 	}
 	b.WriteString("  Recall alone is gamed by one article owning the repo, which\n" +
 		"  scores 1.00 and routes nobody. Read it against the reach column:\n" +
