@@ -1,0 +1,11 @@
+{
+  "name": "kb-compile",
+  "owner": { "name": "Fabian von Feilitzsch" },
+  "plugins": [
+    {
+      "name": "kb-compile",
+      "source": "./",
+      "description": "Build and maintain an enforced LLM knowledge base in any repository."
+    }
+  ]
+}

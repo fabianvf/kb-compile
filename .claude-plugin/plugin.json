@@ -1,0 +1,10 @@
+{
+  "name": "kb-compile",
+  "displayName": "KB Compile",
+  "description": "Build and maintain an enforced LLM knowledge base in any repository. Ships the kb graph / kb fresh gates plus skills to bootstrap, back-fill, compile and compress the KB.",
+  "version": "0.1.0",
+  "author": { "name": "Fabian von Feilitzsch" },
+  "repository": "https://github.com/fabianvf/kb-compile",
+  "license": "MIT",
+  "keywords": ["knowledge-base", "documentation", "context", "ratchet", "ci"]
+}
