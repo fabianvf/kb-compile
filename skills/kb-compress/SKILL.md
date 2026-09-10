@@ -9,6 +9,11 @@ Make the KB shorter without making it dumber.
 Read [`SPEC.md`](../../SPEC.md) first. `kb-compile` keeps the KB *correct*;
 this keeps it *dense*, which is what keeps it read.
 
+**Cost:** every article gets read in full, so this runs roughly 5-15k tokens
+per article plus the edits, meaning **100-400k for a 25-article KB**. Cheaper
+than `kb-catchup` and still worth naming before you start. It is a periodic
+pass, not something to run on every change.
+
 ---
 
 ## Why length is a correctness problem

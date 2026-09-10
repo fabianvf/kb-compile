@@ -28,6 +28,11 @@ everything, fail anything new, shrink over time.
 Coverage is `kb-catchup`'s job and it is measured in weeks. Today's job is to
 make the number stop going up.
 
+**`kb-init` itself is cheap** (a survey, a config, one article: tens of
+thousands of tokens). `kb-catchup` is not, and it scales with the orphan count.
+When you report the baseline at the end, report the estimated catchup cost with
+it, so the size of the commitment is visible before anyone opts into it.
+
 ---
 
 ## 1. Check the binary

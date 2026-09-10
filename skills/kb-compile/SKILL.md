@@ -6,6 +6,10 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 
 Bring the KB back into agreement with the code, then record that you did.
 
+**Cost:** scoped to what changed, so an ordinary pass is small (one to a few
+articles). It only gets expensive after a long gap or a wide refactor, and
+`kb fresh` tells you which before you begin.
+
 Read [`SPEC.md`](../../SPEC.md) if you have not - especially §5 on why the
 manifest records a judgement rather than a derivation. That is the whole reason
 this skill is a skill and not a script.

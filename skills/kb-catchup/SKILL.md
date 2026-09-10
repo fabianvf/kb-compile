@@ -1,6 +1,6 @@
 ---
 name: kb-catchup
-description: Back-fill a knowledge base until the orphan baseline shrinks to zero. Clusters undocumented production files into subsystems, writes one article per subsystem, and ratchets the baseline down in verified batches. Use after kb-init, or any time the orphan baseline is large and needs working through.
+description: Back-fill a knowledge base until the orphan baseline shrinks to zero. Clusters undocumented production files into subsystems, writes one article per subsystem, and ratchets the baseline down in verified batches. Use after kb-init, or any time the orphan baseline is large and needs working through. EXPENSIVE, roughly 30-80k tokens per article written; tell the user the estimate and get agreement before starting a full run.
 argument-hint: [subsystem-or-path]
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent
 ---
@@ -10,6 +10,39 @@ Work the orphan baseline down to zero, one subsystem at a time.
 Read [`SPEC.md`](../../SPEC.md) first, particularly §1 (what belongs in an
 article) and §7 (sizing). This skill is mostly about *not* writing the wrong
 thing at scale.
+
+---
+
+## Cost, before you start
+
+This is the expensive skill in the set, and the cost scales with the worklist
+rather than with the request. Say the number out loud before starting.
+
+Writing one article properly means reading a subsystem's code, its history and
+its tests. That runs roughly **30-80k tokens per article**, more for a gnarly
+subsystem. Clusters land around 5-20 files, so:
+
+| Orphans in the baseline | Articles, roughly | Rough token cost |
+|---|---|---|
+| 50 | 5-8 | 200-600k |
+| 150 | 12-20 | 500k-1.5M |
+| 500 | 35-60 | 1.5-4M |
+| 1000+ | 70+ | 3M+ |
+
+Two things follow.
+
+**Get agreement on scope first.** Report the orphan count and the estimate,
+and offer to do a batch rather than the whole thing. Nobody wants to discover
+the size of this after it has started.
+
+**Batch regardless.** Work in groups of 3-5 articles, commit each group, and
+stop cleanly at a boundary. The ratchet is designed for partial progress, and a
+run that dies mid-way having committed nothing has spent the tokens for no
+result.
+
+If you are asked to just make the number go down cheaply, say no. Wide `covers:`
+globs would do it in minutes and produce a KB that claims coverage it does not
+have, which is worse than the orphans.
 
 ---
 
