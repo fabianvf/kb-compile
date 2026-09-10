@@ -13,7 +13,7 @@ kb compiled   Record that a compile just reviewed the current content.
 ```
 
 Single static binary, no runtime. The repo describes itself in
-`.kb/config.json`; the checker supplies the rules.
+`.kb/config.yaml`; the checker supplies the rules.
 
 ## Why two gates
 
@@ -86,12 +86,18 @@ object. The shape *is* the design.
 
 ## Configuration
 
-Everything repo-specific is data. `testdata/fixture/.kb/config.json` is a
-complete worked example, but a minimal config is three lines:
+Everything repo-specific is data, in `.kb/config.yaml`. A minimal config is
+two lines:
 
-```jsonc
-{ "prod_roots": ["src"], "prod_extensions": [".py"] }
+```yaml
+prod_roots: [src]
+prod_extensions: [.py]
 ```
+
+`testdata/fixture/.kb/config.yaml` is a fully commented reference. YAML because
+the file is read and edited by people, and the allowlists are worthless without
+their reasons beside them; JSON still loads for repos that already have one,
+but keeping both is an error rather than a precedence rule.
 
 Most settings are opinions you can decline. The article-type taxonomy is
 optional; omit it and articles may be named anything. Vendored trees
@@ -101,16 +107,14 @@ adoption does not start with thousands of orphans from code you did not write.
 Language support is **declarative** - adding one must not require a Go
 toolchain:
 
-```jsonc
-{
-  "name": "python",
-  "extensions": [".py"],
-  "pattern": "(?m)^\\s*(?:from|import)\\s+([a-zA-Z_][\\w.]*)",
-  "strategy": "dotted-longest-prefix",
-  "root": "",
-  "underscore_root": "app",
-  "underscore_split": true
-}
+```yaml
+- name: python
+  extensions: [.py]
+  pattern: '(?m)^\s*(?:from|import)\s+([a-zA-Z_][\w.]*)'
+  strategy: dotted-longest-prefix
+  root: ""             # the import root IS the repo root
+  underscore_root: app # but pytest flattens relative to app/
+  underscore_split: true
 ```
 
 Three strategies cover the dialects seen so far:
@@ -124,10 +128,10 @@ Three strategies cover the dialects seen so far:
 
 Regex adapters approximate a resolver. `link_commands` asks the real one:
 
-```jsonc
-"link_commands": [
-  { "name": "go", "command": ["contrib/kb-imports-go.sh"] }
-]
+```yaml
+link_commands:
+  - name: go
+    command: [contrib/kb-imports-go.sh]
 ```
 
 The command emits `<test file>\t<production file>`, one edge per line, both
@@ -157,13 +161,11 @@ Some relationships leave no import edge - an end-to-end suite selector covers a
 screen flow, not a file. `extra_link_kinds` adds a column to the reverse index,
 read from a file the repo already generates:
 
-```jsonc
-{
-  "name": "suites",
-  "source": "build/suite_map.txt",
-  "pattern": "(?m)^map\\s+\"([^\"]+)\"\\s+\"([^\"]*)\"",
-  "match": "substring"
-}
+```yaml
+- name: suites
+  source: build/suite_map.txt
+  pattern: '(?m)^map\s+"([^"]+)"\s+"([^"]*)"'
+  match: substring
 ```
 
 `match` is `exact` (default), `prefix`, or `substring`, and getting it wrong is
@@ -182,7 +184,7 @@ and some won't be able to. The failure output has to carry the fix:
 ```
 kb graph: docs/kb/arch-core.md:14: FILES block names `app/core/renamed.py`,
   which git does not track. Paths must be repo-root-relative. If it is generated
-  and gitignored, add it to `generated_paths` in .kb/config.json with a reason.
+  and gitignored, add it to `generated_paths` in .kb/config.yaml with a reason.
 ```
 
 This is also what makes the tool editor-agnostic. Instructions are an
@@ -209,7 +211,7 @@ port or a config change is validated against a KB some other implementation
 generated:
 
 ```bash
-KB_COMPARE_REPO=/path/to/repo KB_COMPARE_CONFIG=/abs/path/config.json \
+KB_COMPARE_REPO=/path/to/repo KB_COMPARE_CONFIG=/abs/path/config.yaml \
   go test ./internal/kb -run Golden -v
 ```
 

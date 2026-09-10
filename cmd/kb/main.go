@@ -36,7 +36,8 @@ USAGE
   kb version
 
 FLAGS
-  --config PATH          Config file (default ` + config.DefaultPath + `)
+  --config PATH          Config file (default: ` + config.DefaultPath + `,
+                         falling back to .yml or .json)
   --root PATH            Repository root (default: current directory)
 `
 
@@ -48,7 +49,7 @@ func main() {
 	cmd := os.Args[1]
 
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
-	cfgPath := fs.String("config", config.DefaultPath, "config file")
+	cfgPath := fs.String("config", "", "config file (default: .kb/config.yaml)")
 	root := fs.String("root", "", "repository root")
 	write := fs.Bool("write", false, "regenerate derived artifacts")
 	quiet := fs.Bool("quiet", false, "suppress the OK line")
@@ -73,11 +74,22 @@ func main() {
 		}
 	}
 
-	cfg, err := config.Load(*cfgPath)
+	path := *cfgPath
+	if path == "" {
+		var err error
+		if path, err = config.Discover(); err != nil {
+			if os.IsNotExist(err) {
+				die("no config found (looked for %s). Run the kb-init "+
+					"skill to create one, or pass --config.",
+					strings.Join(config.SearchPaths, ", "))
+			}
+			die("%v", err)
+		}
+	}
+	cfg, err := config.Load(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			die("no config at %s. Run the kb-init skill to create one, or "+
-				"pass --config.", *cfgPath)
+			die("no config at %s", path)
 		}
 		die("%v", err)
 	}

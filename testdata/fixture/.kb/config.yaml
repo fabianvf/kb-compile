@@ -1,0 +1,83 @@
+# What the KB governs in this repo. See SPEC.md for the article format.
+
+kb_dir: docs/kb
+
+# The orphan ratchet's scope: every file under these roots, with one of these
+# extensions, must be claimed by an article.
+prod_roots: [app, web, infra]
+prod_extensions: [.py, .js, .sh]
+
+# Wider than prod_extensions on purpose: an article may correctly cite a
+# .json or .html it does not own, and a cited path still has to resolve.
+path_extensions: [.py, .js, .sh, .json, .yaml, .html]
+
+# Optional. Omit to skip the taxonomy entirely and name articles freely.
+article_types:
+  arch: arch
+  recipe: recipe
+  ref: ref
+  policy: policy
+
+# Tried when a cited path like `core/engine.py` fails to resolve from the repo
+# root. Resolving under exactly one of these means "not repo-root-relative"
+# rather than "missing", and the fix is different.
+ambiguity_roots: [app, web]
+
+exclude_substrings: [node_modules, /venv/]
+
+# What counts as a test. Both conventions usually coexist: a _test/.spec
+# SUFFIX and a test_ PREFIX. Missing one makes those files production source,
+# so the ratchet demands KB ownership for a test.
+test_rules:
+  dir_substrings: [/test/, /tests/]
+  path_prefixes: [tests/]
+  base_prefixes: [test_]
+  base_suffixes: [_test.py]
+  path_substrings: [.spec.]
+
+# Extensions that can carry an import. A PNG fixture under a test directory is
+# a test by the path rule, but there is nothing in it to link.
+source_extensions: [.py, .js]
+
+# Prefer a link_commands entry over these where the language has real tooling
+# (go list, madge, pydeps). See contrib/.
+adapters:
+  - name: python
+    extensions: [.py]
+    pattern: '(?m)^\s*(?:from|import)\s+([a-zA-Z_][\w.]*)'
+    strategy: dotted-longest-prefix
+    root: ""            # the import root IS the repo root
+    underscore_root: app # but pytest flattens relative to app/
+    underscore_split: true
+  - name: js
+    extensions: [.js]
+    pattern: 'from\s+[''"](\.[^''"]+)[''"]'
+    strategy: relative
+
+# Recovers the link when a test reaches its subject through a dispatcher and
+# so never imports it by name.
+stem_rules:
+  - suffix: _test.py
+  - prefix: test_
+    ext: .py
+  - pattern: '^(.+)\.spec\.(?:js|mjs|ts)$'
+
+lang_families: {.py: py, .js: js}
+
+# Both allowlists require a reason. An entry without one is indistinguishable
+# from a mistake.
+not_repo_paths:
+  uploads/{userId}/avatar.png: an object-store key, not a repo file (arch-api)
+generated_paths:
+  app/api/schema.json: emitted by `make schema`; gitignored
+
+# A relationship no import edge can reveal. `match` matters: reading pattern
+# keys as exact paths gives a silently EMPTY column, which reads as "no links
+# needed" rather than as a bug.
+extra_link_kinds:
+  - name: suites
+    source: build/suite_map.txt
+    pattern: '(?m)^map\s+"([^"]+)"\s+"([^"]*)"'
+    split: ","
+    match: substring
+    missing: Regenerate it with `make suite-map`.

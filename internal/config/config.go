@@ -12,10 +12,25 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"sigs.k8s.io/yaml"
 )
 
-// DefaultPath is where a repo's config lives, relative to the repo root.
-const DefaultPath = ".kb/config.json"
+// DefaultPath is the config this tool writes and documents. YAML, because a
+// config file is read and edited by people far more often than by programs,
+// and comments are the difference between a setting someone can change and a
+// setting nobody dares touch. The allowlists in particular are worthless
+// without their reasons written beside them.
+const DefaultPath = ".kb/config.yaml"
+
+// SearchPaths are tried in order when no --config is given. JSON still works:
+// the format is an implementation detail of the same schema, and a repo that
+// already has a JSON config should not be forced to convert.
+var SearchPaths = []string{
+	".kb/config.yaml",
+	".kb/config.yml",
+	".kb/config.json",
+}
 
 // Config is the full per-repo description. Every field has a default that is
 // wrong for most repos and harmless for all of them, so a minimal config is
@@ -234,14 +249,45 @@ func JoinRoot(root, rest string) string {
 	return root + "/" + rest
 }
 
-// Load reads and validates a config, applying defaults.
+// Discover finds the config when none was named explicitly.
+//
+// Finding more than one is an error rather than a precedence rule. Two configs
+// in a repo means one of them is stale, and silently preferring either is how
+// a change gets made to the file nobody is reading.
+func Discover() (string, error) {
+	var found []string
+	for _, p := range SearchPaths {
+		if _, err := os.Stat(p); err == nil {
+			found = append(found, p)
+		}
+	}
+	switch len(found) {
+	case 0:
+		return "", os.ErrNotExist
+	case 1:
+		return found[0], nil
+	default:
+		return "", fmt.Errorf("found %d configs (%s). Keep one: two means "+
+			"one is stale, and preferring either silently would let a change "+
+			"land in the file nobody reads", len(found), strings.Join(found, ", "))
+	}
+}
+
+// Load reads and validates a config, applying defaults. YAML or JSON, decided
+// by extension; YAML is a superset, so the same decoder handles both.
 func Load(path string) (*Config, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
+	// Convert to JSON first so the `json:` struct tags govern both formats and
+	// cannot drift apart, and so unknown-key rejection works identically.
+	j, err := yaml.YAMLToJSON(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
 	var c Config
-	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec := json.NewDecoder(strings.NewReader(string(j)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&c); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)

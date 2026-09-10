@@ -144,7 +144,7 @@ artifact sitting in a working tree would make the check pass on one machine
 and fail on another, and a gate whose verdict depends on the machine is worse
 than no gate.
 
-Two escape hatches, both in `.kb/config.json`, both requiring a written reason:
+Two escape hatches, both in `.kb/config.yaml`, both requiring a written reason:
 
 - `not_repo_paths` - looks like a path, genuinely cannot be one (a cloud
   storage key, an illustrative URL)

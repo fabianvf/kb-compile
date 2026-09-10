@@ -1,6 +1,6 @@
 ---
 name: kb-init
-description: Bootstrap an enforced LLM knowledge base in a repository that has none. Surveys the repo, writes .kb/config.json, creates the KB directory, wires the gates into the build and CI, installs the pre-commit hook, and records the first compile. Use when a repo has no docs/kb/ yet, or when adopting kb-compile for the first time.
+description: Bootstrap an enforced LLM knowledge base in a repository that has none. Surveys the repo, writes .kb/config.yaml, creates the KB directory, wires the gates into the build and CI, installs the pre-commit hook, and records the first compile. Use when a repo has no docs/kb/ yet, or when adopting kb-compile for the first time.
 argument-hint: [kb-directory]
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 ---
@@ -84,11 +84,45 @@ it is cheap to ask now and expensive to reverse later.
 
 ## 3. Write the config
 
-Write `.kb/config.json`. Start `not_repo_paths` and `generated_paths` **empty**.
-They earn entries one at a time, each with a reason, when the checker flags
-something.
+Write **`.kb/config.yaml`**. YAML rather than JSON because this file is read
+and edited by people far more often than by programs, and comments are the
+difference between a setting someone can change and one nobody dares touch.
+The two allowlists in particular are worthless without their reasons written
+beside them. JSON still loads if a repo already has one, but do not create new
+ones, and never keep both: two configs means one is stale, and `kb` refuses to
+guess which.
 
-Use `testdata/fixture/.kb/config.json` in this repo as the shape reference.
+**Comment the choices as you make them.** Six months on, "why is `.yaml` not in
+`prod_extensions`?" is a real question, and the config is the only place that
+can answer it.
+
+Start minimal and widen. This is a complete, valid config:
+
+```yaml
+prod_roots: [src]
+prod_extensions: [.py]
+```
+
+Everything else is an opinion you can decline:
+
+| Field | Add it when |
+|---|---|
+| `kb_dir` | the KB is not at `docs/kb` |
+| `path_extensions` | articles cite files they do not own (configs, templates) |
+| `article_types` | you want a taxonomy enforced. Omit and articles may be named anything |
+| `test_rules` | the defaults miss a convention. Check BOTH: a `_test`/`.spec` suffix and a `test_` prefix |
+| `link_commands` | the language has real tooling (`go list`, `madge`). Prefer this to `adapters` |
+| `adapters` | no such tool exists. The `root` question is the one people get wrong: is the import root the repo root (`""`) or a subdirectory? |
+| `ambiguity_roots` | prose cites paths like `core/engine.py` that are not repo-root-relative |
+| `exclude_substrings` | the defaults are wrong. An explicit list REPLACES them, so re-list what you still want |
+
+Start `not_repo_paths` and `generated_paths` **empty**. They earn entries one
+at a time, each with a written reason, when the checker flags something. If you
+are adding a third in one sitting, the rule is probably wrong rather than the
+paths.
+
+`testdata/fixture/.kb/config.yaml` in the kb-compile repo is a fully commented
+reference.
 
 Then check it parses before going further:
 
@@ -98,6 +132,12 @@ kb graph 2>&1 | head
 
 Expect it to fail on a missing KB directory. That is the correct failure at
 this point; it means the config loaded.
+
+**Re-run this step alone to change the config later** - adding a language,
+widening a root, swapping an adapter for a `link_commands` entry. Regenerate
+with `kb graph --write` afterwards and read the diff: widening `prod_roots` or
+`prod_extensions` adds orphans, and the ratchet will refuse to write a grown
+baseline, which is the check working.
 
 ## 4. Create the KB directory
 
