@@ -1,24 +1,108 @@
 name: ci
+
 on:
   push:
     branches: [main]
   pull_request:
 
+# A second push should cancel the first: nothing here is worth finishing for a
+# commit that has already been superseded.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # kb eval walks git history, and the KB gates ask git what the repo
+          # contains. A shallow clone would make both silently wrong rather
+          # than fail, which is the worst available outcome for a gate.
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          check-latest: true
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::not gofmt'd:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      # The golden tests stage the fixture into a temp dir and git init it, so
+      # the runner needs an identity before they will pass.
+      - name: configure git for the fixture
+        run: |
+          git config --global user.email ci@example.invalid
+          git config --global user.name ci
+
+      - name: test
+        run: go test -race -count=1 ./...
+
+      - name: build
+        run: go build ./...
+
+  # The tool gates its own knowledge base. A change here that breaks the
+  # contract fails the build that ships the thing enforcing it, which is the
+  # only way the contract stays honest.
+  dogfood:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: install kb
+        run: go install ./cmd/kb
+
+      - name: kb graph
+        run: kb graph
+
+      # Fails when source this KB owns has changed without anyone re-reading
+      # the owning article. The fix is to read it and run `kb compiled`, not to
+      # add this to a hook: the manifest records a judgement, and a judgement
+      # regenerated automatically asserts nothing.
+      - name: kb fresh
+        run: kb fresh
+
+      # Advisory. Prints the article-boundary score against a directory
+      # baseline; it does not gate, because the number is only meaningful with
+      # enough history and we would rather read it than enforce it.
+      - name: kb eval
+        run: kb eval || true
+
+  # Cross-compilation is the distribution promise: a single static binary for
+  # anyone's CI, with no toolchain to install. Breaking it is easy to do and
+  # invisible until someone downloads a release.
+  crosscompile:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
-      - name: gofmt
-        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
-      - run: go vet ./...
-      # The golden tests shell out to git and stage a fixture repo, so they
-      # need an identity to commit with.
-      - name: configure git for the fixture
+      - name: build every target
         run: |
-          git config --global user.email ci@example.invalid
-          git config --global user.name ci
-      - run: go test ./...
+          set -eu
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            os=${target%/*}; arch=${target#*/}
+            echo "-> $target"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -o /dev/null ./cmd/kb
+          done

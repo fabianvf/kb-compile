@@ -312,6 +312,17 @@ For other editors, `kb-init` writes the KB section into **`AGENTS.md`** and has
 any tool-specific file import it, so there is one copy rather than several that
 drift.
 
+## This repo uses it
+
+`docs/kb/` is kb-compile's own knowledge base, and CI runs `kb graph` and
+`kb fresh` against it on every push. A change that breaks the contract fails
+the build that ships the thing enforcing it, which is the only arrangement
+where the contract stays honest.
+
+It works. Writing these four articles, the gate caught a change to `eval.go`
+made after the compile was recorded and named the owning article to re-read.
+That is the intended failure, on its author, within an hour of the KB existing.
+
 ## Status
 
 Working: both checkers, the config layer, the golden harness, `SPEC.md`, four
