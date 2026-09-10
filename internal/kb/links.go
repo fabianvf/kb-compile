@@ -174,6 +174,21 @@ func (c *Checker) underscoreSplit(root, ext, stem string) string {
 	return ""
 }
 
+// filesInDir returns the tracked files whose immediate parent is dir.
+func (c *Checker) filesInDir(dir string) []string {
+	if c.byDir == nil {
+		c.byDir = map[string][]string{}
+		for _, f := range c.Tracked {
+			d := ""
+			if i := strings.LastIndex(f, "/"); i >= 0 {
+				d = f[:i]
+			}
+			c.byDir[d] = append(c.byDir[d], f)
+		}
+	}
+	return c.byDir[dir]
+}
+
 func (c *Checker) adapterFor(path string) *config.Adapter {
 	for i := range c.Cfg.Adapters {
 		if c.hasExt(path, c.Cfg.Adapters[i].Extensions) {
@@ -215,6 +230,20 @@ func (c *Checker) resolveImports(a *config.Adapter, testPath, src string) []stri
 				if c.trackSet[cand] {
 					out = append(out, cand)
 					break
+				}
+			}
+		case "package":
+			// A package import names a directory and pulls in every file in
+			// it, so there is no single file to resolve to. Link to each
+			// source file directly inside — NOT recursively: a nested
+			// directory is a different package that this import did not pull
+			// in, and claiming it would link a test to code it never touches.
+			for _, tmpl := range a.Resolve {
+				dir := expand(tmpl, m)
+				for _, f := range c.filesInDir(dir) {
+					if c.hasExt(f, a.Extensions) {
+						out = append(out, f)
+					}
 				}
 			}
 		case "relative":

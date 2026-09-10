@@ -17,6 +17,7 @@ type Checker struct {
 	Articles map[string]*Article
 	Tracked  []string
 	trackSet map[string]bool
+	byDir    map[string][]string
 
 	Errors   []string
 	Warnings []string

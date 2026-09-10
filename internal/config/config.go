@@ -119,6 +119,11 @@ type TestRules struct {
 //	                        submodule.
 //	"relative"              The capture is a relative specifier resolved
 //	                        against the importing file's directory.
+//	"package"               The capture names a DIRECTORY, not a file. Go,
+//	                        Java and other package-based languages import a
+//	                        package and get every file in it, so there is no
+//	                        single file to resolve to — the link is to every
+//	                        source file directly inside that directory.
 type Adapter struct {
 	Name       string   `json:"name"`
 	Extensions []string `json:"extensions"`
@@ -274,6 +279,11 @@ func (c *Config) finalize() error {
 			if len(a.Resolve) == 0 {
 				return fmt.Errorf("adapter %q: strategy \"template\" needs "+
 					"at least one resolve template", a.Name)
+			}
+		case "package":
+			if len(a.Resolve) == 0 {
+				return fmt.Errorf("adapter %q: strategy \"package\" needs at "+
+					"least one resolve template naming the directory", a.Name)
 			}
 		case "dotted-longest-prefix":
 			// An empty Root is meaningful here (the repo root), so there is
