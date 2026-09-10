@@ -140,16 +140,40 @@ func (c *Checker) BuildTestLinks() map[string][]string {
 
 // stemLinkAllowed decides whether a stem match may link a test to a candidate.
 //
-// Same language: always. Across languages: only when the stem is distinctive
-// (multi-word). Both halves are load-bearing. Blanket cross-language matching
-// links `app.js` to `app_test.dart` and `main.dart` to `test_main.py`, which is
-// noise. But forbidding it outright drops the links that carry the most weight:
-// a typed-callable client wrapper and its server-side test are two halves of
-// ONE contract, and those are exactly the cross-surface edges an agent needs
-// and no import can ever reveal.
+// Allowed when the two sit in the SAME DIRECTORY, or when the stem is
+// distinctive (multi-word). Every other pairing is rejected.
+//
+// Both arms are load-bearing, and each was added because the other let real
+// noise through:
+//
+//   - Same-directory covers the ordinary convention: `client.js` beside
+//     `client.spec.js`. No ambiguity is possible.
+//   - A distinctive stem covers the case no import can ever reveal: a client
+//     wrapper and its server-side test are two halves of ONE contract and live
+//     in different trees. `join_org_challenge` is specific enough to trust.
+//
+// What is rejected is a SINGLE-WORD stem across directories. Universal
+// filenames — `main`, `index`, `client`, `utils` — recur once per package, so
+// matching them links every entry point to every unrelated entry-point test.
+// Requiring same-language was not enough: Go has one `main.go` per command,
+// and a `main_test.go` three subsystems away is the same language and a
+// completely different program.
 func (c *Checker) stemLinkAllowed(testPath, candidate, stem string) bool {
+	if dirOf(testPath) == dirOf(candidate) {
+		return true
+	}
+	if !strings.Contains(stem, "_") {
+		return false
+	}
 	return c.Cfg.LangFamily(candidate) == c.Cfg.LangFamily(testPath) ||
 		strings.Contains(stem, "_")
+}
+
+func dirOf(p string) string {
+	if i := strings.LastIndex(p, "/"); i >= 0 {
+		return p[:i]
+	}
+	return ""
 }
 
 // underscoreSplit reconstructs a package path from a flattened test stem.

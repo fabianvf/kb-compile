@@ -35,8 +35,9 @@ type Article struct {
 
 	SawFrontmatter bool
 
-	// HasSeeAlsoSectionLink records whether a `## SEE ALSO` section contains
-	// an actual link. A heading with nothing under it is still a dead end.
+	// HasSeeAlsoSectionLink records whether a `## SEE ALSO` section contains a
+	// link to ANOTHER article. A heading with nothing under it is still a dead
+	// end, and so is one that only points at itself.
 	HasSeeAlsoSectionLink bool
 
 	// Anchors are the addressable targets for `§ Foo` citations: headings AND
@@ -174,8 +175,16 @@ func ParseArticle(cfg *config.Config, path, id string, errs *[]string) (*Article
 				}
 			}
 		}
-		if inSeeAlso && sectLinkRe.MatchString(ln) {
-			a.HasSeeAlsoSectionLink = true
+		if inSeeAlso {
+			for _, m := range linkRe.FindAllStringSubmatch(ln, -1) {
+				// A link to SELF is not an outbound edge. Without this, the
+				// cheapest way past the dead-end ratchet is a `## SEE ALSO`
+				// pointing at the article it is already in — which clears the
+				// gate while leaving the reader exactly where they started.
+				if strings.TrimSuffix(m[1], ".md") != a.ID {
+					a.HasSeeAlsoSectionLink = true
+				}
+			}
 		}
 
 		for _, m := range backtickRe.FindAllStringSubmatch(ln, -1) {

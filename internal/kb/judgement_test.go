@@ -266,3 +266,95 @@ func TestDeadEndNeedsALinkNotAHeading(t *testing.T) {
 		t.Error("a frontmatter `see_also:` edge was not counted")
 	}
 }
+
+// ── Found by running kb-init against an unfamiliar repo ─────────────────────
+//
+// Both of these shipped green through the fixture suite. The fixture had no
+// case that produced either, which is the recurring lesson: a corpus proves
+// what it contains, and the first contact with a real codebase is where the
+// gaps show up.
+
+// TestSelfLinkIsNotAnOutboundEdge pins that a `## SEE ALSO` pointing at its
+// own article does not clear the dead-end ratchet.
+//
+// Otherwise the cheapest way past the gate is to link the article to itself:
+// the section exists, it contains a link, the ratchet is satisfied, and a
+// reader who follows it is exactly where they started. Frontmatter `see_also:`
+// already rejected self-edges; the section path did not, and nothing tested it.
+func TestSelfLinkIsNotAnOutboundEdge(t *testing.T) {
+	cfg := &config.Config{ArticleTypes: map[string]string{"arch": "arch"}}
+	dir := t.TempDir()
+
+	parse := func(name, body string) *Article {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var errs []string
+		a, err := ParseArticle(cfg, p, "arch-self", &errs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+
+	const head = "---\nid: arch-self\ntype: arch\n---\n# Self\n\n## SEE ALSO\n\n"
+
+	if parse("a.md", head+"- [arch-self.md](arch-self.md) — see above.\n").HasOutboundEdge() {
+		t.Error("a SEE ALSO link to the article's own id counted as an outbound " +
+			"edge; the dead-end ratchet can now be cleared by linking to self")
+	}
+	if !parse("b.md", head+"- [arch-other.md](arch-other.md) — owns the write path.\n").HasOutboundEdge() {
+		t.Error("a link to another article was not counted")
+	}
+	// A self-link alongside a real one must still count: the real one is the edge.
+	if !parse("c.md", head+
+		"- [arch-self.md](arch-self.md) — see above.\n"+
+		"- [arch-other.md](arch-other.md) — owns the write path.\n").HasOutboundEdge() {
+		t.Error("a real edge was discarded because a self-link sat beside it")
+	}
+}
+
+// TestStemLinkRejectsUniversalFilenames pins that a single-word stem does not
+// match across directories.
+//
+// Universal filenames recur once per package — `main`, `index`, `client`,
+// `utils`. Requiring the same LANGUAGE was not enough: Go has one `main.go`
+// per command, so every entry point linked to every unrelated entry-point test
+// three subsystems away. The link has to be same-directory, or the stem has to
+// be distinctive enough to mean something on its own.
+func TestStemLinkRejectsUniversalFilenames(t *testing.T) {
+	cfg := &config.Config{LangFamilies: map[string]string{
+		".go": "go", ".py": "py", ".dart": "dart", ".js": "js", ".mjs": "js",
+	}}
+	c := New(cfg, map[string]*Article{}, nil)
+
+	cases := []struct {
+		test, candidate, stem string
+		want                  bool
+		why                   string
+	}{
+		{"lsp/protocol/generate/main_test.go", "cmd/analyzer/main.go", "main", false,
+			"single-word stem, different directories, unrelated programs"},
+		{"web/index.spec.js", "server/index.js", "index", false,
+			"`index` recurs once per directory in JS"},
+
+		{"cmd/analyzer/main_test.go", "cmd/analyzer/main.go", "main", true,
+			"same directory: the ordinary convention, no ambiguity possible"},
+		{"web/client.spec.js", "web/client.js", "client", true,
+			"same directory"},
+
+		{"functions/tests/test_join_org_challenge.py",
+			"lib/services/callables/join_org_challenge.dart", "join_org_challenge", true,
+			"distinctive multi-word stem across languages: two halves of one " +
+				"contract, and no import can ever reveal it"},
+		{"tests/parse_ruleset_test.go", "engine/parse_ruleset.go", "parse_ruleset", true,
+			"distinctive multi-word stem, same language, different directory"},
+	}
+	for _, tc := range cases {
+		if got := c.stemLinkAllowed(tc.test, tc.candidate, tc.stem); got != tc.want {
+			t.Errorf("stemLinkAllowed(%q, %q, %q) = %v, want %v — %s",
+				tc.test, tc.candidate, tc.stem, got, tc.want, tc.why)
+		}
+	}
+}
