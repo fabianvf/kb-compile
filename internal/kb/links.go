@@ -1,7 +1,9 @@
 package kb
 
 import (
+	"bytes"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 
@@ -386,4 +388,97 @@ func flatten(m map[string]map[string]bool) map[string][]string {
 		out[k] = vals
 	}
 	return out
+}
+
+// RunLinkCommands asks the repo's own tooling for the import graph.
+//
+// Each command emits `<test file>\t<production file>` lines. Both sides are
+// validated against the tracked-file list, so a script that emits a stale or
+// absolute path fails loudly here rather than producing links that quietly
+// point nowhere.
+func (c *Checker) RunLinkCommands() map[string][]string {
+	links := map[string]map[string]bool{}
+
+	for _, lc := range c.Cfg.LinkCommands {
+		cmd := exec.Command(lc.Command[0], lc.Command[1:]...)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			msg := strings.TrimSpace(stderr.String())
+			if lc.Optional {
+				c.warnf("link command %q failed, so its links are missing "+
+					"from the reverse index (which will then read as stale): "+
+					"%v %s", lc.Name, err, msg)
+				continue
+			}
+			c.errf("link command %q failed: %v\n  %s\n"+
+				"  It is not optional: an empty tests column reads as \"no "+
+				"links needed\" rather than as a broken toolchain. Install "+
+				"the tool, or mark the command optional and accept the gap.",
+				lc.Name, err, msg)
+			continue
+		}
+
+		n := 0
+		for i, line := range strings.Split(string(out), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			test, src, ok := strings.Cut(line, "\t")
+			if !ok {
+				c.errf("link command %q, line %d: expected "+
+					"\"<test>\\t<source>\", got %q", lc.Name, i+1, line)
+				continue
+			}
+			test, src = strings.TrimSpace(test), strings.TrimSpace(src)
+			switch {
+			case !c.trackSet[test]:
+				c.errf("link command %q names test file %q, which git does "+
+					"not track. Paths must be repo-root-relative.", lc.Name, test)
+				continue
+			case !c.trackSet[src]:
+				c.errf("link command %q names source file %q, which git does "+
+					"not track. Paths must be repo-root-relative.", lc.Name, src)
+				continue
+			case !c.Cfg.IsTestFile(test):
+				c.errf("link command %q names %q as a test, but the "+
+					"configured test_rules do not classify it as one. The two "+
+					"must agree or the index and the ratchet describe "+
+					"different repos.", lc.Name, test)
+				continue
+			case c.Cfg.IsTestFile(src):
+				continue // a test importing a test helper is not a link
+			}
+			if links[src] == nil {
+				links[src] = map[string]bool{}
+			}
+			links[src][test] = true
+			n++
+		}
+		if n == 0 {
+			c.errf("link command %q produced no edges at all. A silently "+
+				"empty result is indistinguishable from a repo with no tests, "+
+				"so it is treated as a failure.", lc.Name)
+		}
+	}
+	return flatten(links)
+}
+
+// MergeLinks unions two link maps. Adapters and commands can both be
+// configured, for a repo whose languages are not all served by one approach.
+func MergeLinks(a, b map[string][]string) map[string][]string {
+	merged := map[string]map[string]bool{}
+	for _, m := range []map[string][]string{a, b} {
+		for k, vs := range m {
+			if merged[k] == nil {
+				merged[k] = map[string]bool{}
+			}
+			for _, v := range vs {
+				merged[k][v] = true
+			}
+		}
+	}
+	return flatten(merged)
 }

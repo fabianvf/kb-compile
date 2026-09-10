@@ -62,9 +62,13 @@ You need answers to:
 - **How are tests named?** Both conventions usually coexist: a `_test`/`.spec`
   **suffix** and a `test_` **prefix**. Miss one and those files get treated as
   production source, so the ratchet demands KB ownership for a test.
-- **How does each language import?** You need one adapter per language, and
-  the `root` question is the one people get wrong: is the import root the repo
-  root (`""`) or a subdirectory?
+- **Can the language's own tooling answer the import question?** Prefer a
+  `link_commands` entry running `go list`, `madge`, `pydeps` or equivalent over
+  a regex adapter. It is the real dependency graph rather than an
+  approximation, and `contrib/` has a reference script. Fall back to an adapter
+  where no such tool exists, and note that the `root` question is the one
+  people get wrong there: is the import root the repo root (`""`) or a
+  subdirectory?
 - **What is the build entrypoint?** Makefile, `package.json` scripts,
   `justfile`, `Taskfile`, `cargo`, or bare CI.
 

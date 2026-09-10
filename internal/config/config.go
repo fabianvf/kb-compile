@@ -90,6 +90,11 @@ type Config struct {
 	// original checker pass locally and fail in CI.
 	GeneratedPaths map[string]string `json:"generated_paths"`
 
+	// LinkCommands delegate test-link discovery to real tooling. Merged with
+	// whatever the regex adapters find, so a repo can use the command for one
+	// language and adapters for another.
+	LinkCommands []LinkCommand `json:"link_commands"`
+
 	// ExtraLinkKinds add repo-specific columns to the reverse index, for
 	// relationships no import edge can reveal — an end-to-end suite whose
 	// selectors cover a screen flow rather than a file, for instance.
@@ -321,6 +326,12 @@ func (c *Config) finalize() error {
 		}
 		s.re = re
 	}
+	for i := range c.LinkCommands {
+		if len(c.LinkCommands[i].Command) == 0 {
+			return fmt.Errorf("link_commands[%d] (%q) has no command",
+				i, c.LinkCommands[i].Name)
+		}
+	}
 	for i := range c.ExtraLinkKinds {
 		e := &c.ExtraLinkKinds[i]
 		re, err := regexp.Compile(e.Pattern)
@@ -464,4 +475,33 @@ func (c *Config) TestStem(path string) string {
 		}
 	}
 	return ""
+}
+
+// LinkCommand delegates test-link discovery to the language's own tooling.
+//
+// The regex adapters approximate a resolver. This asks the real one. `go list
+// -deps -json`, `madge`, `pydeps` and friends already know the dependency
+// graph exactly, including the cases a regex cannot see: build tags, aliased
+// imports, re-exports, generated code.
+//
+// The command emits one edge per line, tab-separated:
+//
+//	<test file>\t<production file>
+//
+// Both repo-root-relative. Nothing else about the language reaches this
+// program, which is the point: a repo teaches `kb` about its own toolchain by
+// supplying a script, not by waiting for a strategy to be added here.
+//
+// Two costs, both deliberate. The toolchain has to be installed, and a missing
+// one is a hard error rather than an empty column, because a silently empty
+// column reads as "no links needed". And the command runs on every `kb graph`,
+// so it wants to be seconds, not minutes.
+type LinkCommand struct {
+	Name    string   `json:"name"`
+	Command []string `json:"command"`
+
+	// Optional marks a command whose absence is tolerable. The links it would
+	// have produced are simply missing, which will make the committed reverse
+	// index look stale. Use it only where that trade is understood.
+	Optional bool `json:"optional"`
 }

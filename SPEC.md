@@ -209,6 +209,12 @@ hook should.
 filename similarity. "The file with a similar name" is a guess that is wrong
 exactly when the code has been refactored, which is when it matters.
 
+Where the language's own tooling can answer the question, prefer it: a
+`link_commands` entry runs `go list`, `madge` or equivalent and consumes
+`<test>\t<source>` lines. That is the real dependency graph rather than an
+approximation of it, including the cases a regex cannot see (build tags,
+aliased imports, re-exports, generated code).
+
 ### The two ratchet baselines - derived
 
 `.orphans-baseline.txt` (production source with no KB home) and

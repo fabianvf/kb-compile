@@ -110,6 +110,31 @@ Three strategies cover the dialects seen so far:
   because a package may re-export a submodule. `root: ""` means the repo root.
 - **`relative`** - a `./`-style specifier resolved against the importing file
 
+### Delegating to real tooling
+
+Regex adapters approximate a resolver. `link_commands` asks the real one:
+
+```jsonc
+"link_commands": [
+  { "name": "go", "command": ["contrib/kb-imports-go.sh"] }
+]
+```
+
+The command emits `<test file>\t<production file>`, one edge per line, both
+repo-root-relative. Nothing about the language reaches `kb`, so a repo teaches
+it about its own toolchain by supplying a script rather than waiting for a
+strategy to be added here. Adapters and commands merge, for repos whose
+languages are not all served by one approach.
+
+Measured against the regex adapters on a 505-file Go repo: `go list` found 8
+tests for `engine/engine.go` where the regex found 4, and correctly found none
+for `cmd/analyzer/main.go` where the regex produced a match from an unrelated
+program. `contrib/kb-imports-go.sh` is the reference implementation.
+
+A failing command is a hard error, not an empty column, because an empty
+column reads as "no links needed". So is a command that exits 0 having emitted
+nothing.
+
 Test links come from **real imports**, never filename similarity - "the file
 with a similar name" is a guess that's wrong exactly when the code has been
 refactored, which is when it matters. Exact-stem reconstruction is a second

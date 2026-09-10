@@ -110,7 +110,8 @@ func main() {
 	case "graph":
 		c.CheckDeadEndRatchet(*write)
 		c.CheckOrphanRatchet(ownership, *write)
-		payload := c.BuildReverseIndex(ownership, c.BuildTestLinks(), c.ExtraLinks())
+		testLinks := kb.MergeLinks(c.BuildTestLinks(), c.RunLinkCommands())
+		payload := c.BuildReverseIndex(ownership, testLinks, c.ExtraLinks())
 		c.CheckReverseIndex(payload, *write)
 		report(c, cfg, ownership, *quiet)
 
