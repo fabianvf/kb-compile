@@ -1,0 +1,16 @@
+# Generated. All of it is reproducible from fetch.py / local.py + prepare.py,
+# and it is big: a single 52-run pass left 2.9G in runs2/ and 1.7G in cache/.
+#
+# The globs are suffixed deliberately. An earlier version listed `work/` and
+# `cache/` exactly, so `work-vv2/` and `runs2/` - the directories an actual
+# run creates once tasks come from more than one source - matched nothing and
+# 3G of checked-out repositories sat staged behind `??  bench/`.
+cache*/
+work*/
+runs*/
+rubrics*/
+tasks*.json
+results*.json
+scores*.json
+__pycache__/
+*.pyc
