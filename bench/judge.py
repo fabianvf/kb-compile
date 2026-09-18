@@ -62,20 +62,35 @@ The reference fix is what a maintainer actually committed. Write 6-10 atomic,
 binary rubric items describing what ANY correct and thorough fix for this bug
 must do.
 
-Rules, which matter more than coverage:
+EVERY item must be phrased so that YES means the patch is GOOD. Never write an
+item where YES means the patch did something wrong. This is not a style
+preference: a mixed-polarity rubric cannot be scored, because nothing
+downstream can tell which convention an individual item followed.
+
+  good: "Does the change preserve the existing per-organization branding?"
+  good: "Does the change leave unrelated function handlers untouched?"
+  BAD:  "Does the change break the branding mechanism?"
+
+Other rules:
 - Each item is ONE self-contained yes/no question answerable from a diff alone.
 - Describe BEHAVIOUR AND EFFECT, never a specific implementation. "Guards
   against a null session before use" is good. "Adds an `if (s == null)` on
-  line 40 of auth.dart" is bad - a different but correct fix must be able to
-  score YES.
-- Include 2-3 items marked negative:true for things a careless fix does wrong:
-  breaking an unrelated behaviour, changing a contract other code depends on,
-  leaving a second occurrence of the same bug unfixed, deleting a test.
+  line 40 of auth.dart" is bad - a different but correct fix must score YES.
+- Give each item a "category":
+    "work"        - did it actually fix the reported problem, completely,
+                    including any second place that had to change with it.
+    "preserve"    - did it avoid collateral damage: unrelated behaviour still
+                    intact, contracts other code depends on unchanged, tests
+                    not deleted, a second occurrence of the bug not left
+                    behind.
+  Write 2-3 "preserve" items and put the rest in "work".
 - If the reference fix touches several files because one change requires
-  another, make that dependency its own item. That is the thoroughness this
-  rubric exists to detect.
+  another, make that dependency its own "work" item. That is the thoroughness
+  this rubric exists to detect.
 
-Return ONLY JSON: {{"items":[{{"id":1,"check":"...","negative":false}}]}}"""
+Return ONLY JSON:
+{{"items":[{{"id":1,"check":"...","category":"work"}}]}}"""
+
 
 GRADE_PROMPT = """Grade a candidate bug fix against a rubric.
 
@@ -94,7 +109,9 @@ GRADE_PROMPT = """Grade a candidate bug fix against a rubric.
 For each rubric item, answer YES or NO based solely on whether the candidate
 patch exhibits the described behaviour. Judge each item independently.
 
-For an item with "negative": true, YES means the candidate DID the bad thing.
+Every item is written so that YES means the patch is good. An item asking
+whether something was PRESERVED or LEFT UNTOUCHED is YES when the patch did
+indeed leave it alone, including when the patch never went near it.
 
 An empty or trivial patch fails every positive item. Do not give credit for
 intent stated in comments; grade what the code does. If the candidate solves
@@ -103,17 +120,74 @@ the problem correctly by different means than you expected, that is still YES.
 Return ONLY JSON: {{"grades":[{{"id":1,"verdict":"YES","why":"<12 words"}}]}}"""
 
 
-def ask(prompt, model, timeout=600):
-    r = subprocess.run(
-        ["claude", "-p", prompt, "--output-format", "json", "--model", model,
-         "--disallowed-tools", "WebSearch", "WebFetch", "Bash", "Edit", "Write"],
-        capture_output=True, text=True, timeout=timeout)
-    try:
-        text = json.loads(r.stdout).get("result", "")
-    except json.JSONDecodeError:
+def extract_json(text):
+    r"""Pull one JSON object out of a model reply.
+
+    `re.search(r"\{.*\}", ...)` is greedy and matches from the first brace to
+    the LAST one in the whole reply, so a closing sentence containing a brace,
+    or a second example object, produces a span that is not valid JSON. It
+    also cannot handle a brace inside a string. Scanning with a depth counter
+    that knows about strings and escapes returns the first COMPLETE object,
+    which is the one the model was asked for.
+    """
+    if not text:
         return None
-    m = re.search(r"\{.*\}", text, re.S)
-    return json.loads(m.group()) if m else None
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
+    if fence:
+        try:
+            return json.loads(fence.group(1))
+        except json.JSONDecodeError:
+            pass
+    start = text.find("{")
+    while start != -1:
+        depth, instr, esc = 0, False, False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if esc:
+                esc = False
+                continue
+            if ch == "\\" and instr:
+                esc = True
+            elif ch == '"':
+                instr = not instr
+            elif not instr and ch == "{":
+                depth += 1
+            elif not instr and ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start:i + 1])
+                    except json.JSONDecodeError:
+                        break
+        start = text.find("{", start + 1)
+    return None
+
+
+def ask(prompt, model, timeout=600, tries=3):
+    """One judge call, retried on a malformed or empty reply.
+
+    Returns None only after every attempt failed, so a caller can tell "the
+    judge could not answer" apart from "the judge said no". A single
+    unparseable reply used to raise out of the worker thread and abort the
+    whole grading pass, discarding every result alongside it.
+    """
+    for n in range(tries):
+        try:
+            r = subprocess.run(
+                ["claude", "-p", prompt, "--output-format", "json",
+                 "--model", model, "--disallowed-tools", "WebSearch",
+                 "WebFetch", "Bash", "Edit", "Write"],
+                capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            continue
+        try:
+            text = json.loads(r.stdout).get("result", "")
+        except json.JSONDecodeError:
+            continue
+        out = extract_json(text)
+        if out:
+            return out
+    return None
 
 
 def gold_patch(task, repo):
@@ -150,8 +224,8 @@ def grade_run(rundir, task, rubric, model):
         out = {"grades": [{"id": i["id"], "verdict": "NO", "why": "empty patch"}
                           for i in rubric["items"]]}
     else:
-        items = [{"id": i["id"], "check": i["check"],
-                  "negative": i.get("negative", False)} for i in rubric["items"]]
+        items = [{"id": i["id"], "check": i["check"]}
+                 for i in rubric["items"]]
         out = ask(GRADE_PROMPT.format(report=task["problem_statement"],
                                       patch=patch[:60000],
                                       rubric=json.dumps(items, indent=2)), model)
@@ -162,44 +236,44 @@ def grade_run(rundir, task, rubric, model):
 
 
 def split_score(rubric, grade):
-    """Score positive and negative items separately.
+    """Score the two categories separately.
 
-    The aggregate hides the thing most worth knowing. Positive items ask "did
-    it do the work" - including the cross-file items, where the reference fix
-    touched a second file because the first change required it. Negative items
-    ask "did it break something else on the way", which is the axis that
-    decides whether a change can be merged without someone reading all of it.
+    The aggregate hides the thing most worth knowing. "work" asks whether the
+    problem was actually fixed, including the second place that had to change
+    with it. "preserve" asks whether anything else was damaged on the way,
+    which is the axis that decides whether a change needs review or rework.
 
-    A KB that raises the negative score without moving the positive one is
-    still doing its job: it is the difference between a patch that needs
-    review and a patch that needs rework.
+    A KB that raises "preserve" without moving "work" is still doing its job.
     """
-    neg = {i["id"]: i.get("negative", False) for i in rubric["items"]}
-    pos_got = pos_n = neg_got = neg_n = 0
+    cat = {i["id"]: i.get("category", "work") for i in rubric["items"]}
+    got = {"work": [0, 0], "preserve": [0, 0]}
     for g in grade.get("grades", []):
-        yes = str(g.get("verdict", "")).upper().startswith("Y")
-        if neg.get(g["id"], False):
-            neg_n += 1
-            neg_got += 0 if yes else 1
-        else:
-            pos_n += 1
-            pos_got += 1 if yes else 0
-    return (pos_got / pos_n if pos_n else None,
-            neg_got / neg_n if neg_n else None)
+        c = cat.get(g["id"], "work")
+        if c not in got:
+            c = "work"
+        got[c][1] += 1
+        if str(g.get("verdict", "")).upper().startswith("Y"):
+            got[c][0] += 1
+    return (got["work"][0] / got["work"][1] if got["work"][1] else None,
+            got["preserve"][0] / got["preserve"][1] if got["preserve"][1] else None)
 
 
 def score(rubric, grade):
-    """Fraction of items the candidate got right, negatives counted inverted."""
-    neg = {i["id"]: i.get("negative", False) for i in rubric["items"]}
-    got = 0
-    for g in grade.get("grades", []):
-        yes = str(g.get("verdict", "")).upper().startswith("Y")
-        if neg.get(g["id"], False):
-            got += 0 if yes else 1
-        else:
-            got += 1 if yes else 0
+    """Fraction of items the candidate got right.
+
+    Every item is YES-is-good by construction, so this is a plain count. It
+    used to invert anything flagged `negative`, which silently required the
+    generator to phrase those items as the BAD behaviour. It did so for some
+    rubrics and not others, so the same verdict meant opposite things in
+    different tasks and the collateral-damage column was unreadable. Uniform
+    polarity removes the class of error rather than documenting it.
+    """
     n = len(rubric["items"])
-    return got / n if n else 0.0
+    if not n:
+        return 0.0
+    yes = sum(1 for g in grade.get("grades", [])
+              if str(g.get("verdict", "")).upper().startswith("Y"))
+    return yes / n
 
 
 def main():
@@ -280,13 +354,13 @@ def main():
         cost = sum(r["cost_usd"] or 0 for r in rs)
         print(f"  {arm:<6} {to} timeout, {empty} chose no edit, ${cost:.2f}")
 
-    print("\n  arm    did the work   broke nothing")
+    print("\n  arm    fixed it   damaged nothing")
     for arm in ("none", "kb"):
         rs = [r for r in rows if r["arm"] == arm]
         pos = [r["pos"] for r in rs if r["pos"] is not None]
         neg = [r["neg"] for r in rs if r["neg"] is not None]
         if pos:
-            print(f"  {arm:<6} {sum(pos)/len(pos):.3f}          "
+            print(f"  {arm:<6} {sum(pos)/len(pos):.3f}      "
                   f"{sum(neg)/len(neg):.3f}" if neg else "")
 
     # Paired, which is the only comparison that means anything: the arms must
