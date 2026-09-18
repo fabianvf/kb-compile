@@ -69,6 +69,29 @@ import (
 // one.
 var ErrNoManifest = errors.New("manifest is missing")
 
+// hasConflictMarkers reports whether data carries git conflict markers.
+//
+// Shared by the manifest and the two ratchet baselines, which are all one
+// record per line for the same mergeability reason and so all conflict for the
+// same reason. Every marker counts, not just the opening one: half-resolving
+// by hand — delete `<<<<<<<` and the losing hunk, miss the tail — is the usual
+// editor flow, and the leftover `=======` or `>>>>>>>` is exactly the state
+// where the reader most needs to be told what NOT to do. Matching per line
+// rather than anywhere in the file keeps a legitimate run of `=` in content
+// from reading as a conflict.
+func hasConflictMarkers(data []byte) bool {
+	for _, l := range bytes.Split(data, []byte("\n")) {
+		t := bytes.TrimRight(l, "\r")
+		if bytes.HasPrefix(t, []byte("<<<<<<<")) ||
+			bytes.HasPrefix(t, []byte(">>>>>>>")) ||
+			bytes.HasPrefix(t, []byte("|||||||")) ||
+			bytes.Equal(t, []byte("=======")) {
+			return true
+		}
+	}
+	return false
+}
+
 // Stale is one file whose content has moved since it was last reviewed.
 type Stale struct {
 	Path     string
@@ -91,7 +114,7 @@ func Freshness(manifestPath string, ownership map[string][]string) ([]Stale, map
 			// resolve it by blanket-approving every file on both sides
 			// unreviewed, which is precisely the review that was about to be
 			// arbitrated.
-			if bytes.Contains(data, []byte("<<<<<<<")) {
+			if hasConflictMarkers(data) {
 				return nil, nil, fmt.Errorf(
 					"%s has unresolved merge conflict markers.\n\n"+
 						"This is expected: two branches recorded a compile for "+
@@ -159,6 +182,57 @@ func WriteManifest(path string, sources map[string]string) error {
 		return err
 	}
 	return os.WriteFile(path, append(raw, '\n'), 0o644)
+}
+
+// MergeManifest records a review of SOME articles, leaving the rest as they
+// were.
+//
+// `kb compiled` used to record every KB-owned file at once, because per-file
+// recording lets you assert coverage you do not have, one file at a time,
+// until the gate is green and means nothing. That reasoning is sound and it
+// produced a failure nobody anticipated: an agent who had genuinely reviewed
+// three of the five articles the gate named, and genuinely not reviewed the
+// other two, had exactly one truthful option — record nothing and leave the
+// gate red. Which is the output a careless agent produces too. The gate could
+// not tell the honest one from the negligent one, so the honesty cost the
+// honest agent everything and bought no information.
+//
+// The rule the coarse version got wrong: the granularity of the RECORD has to
+// match the granularity of the CHECK. `kb fresh` names articles individually,
+// so the record has to be able to name a subset. The anti-gaming argument does
+// not call for coarseness — it calls for each claim to be specific and
+// attributable, which is the opposite.
+func MergeManifest(path string, current map[string]string, files []string) (int, error) {
+	merged := map[string]string{}
+	// Read what is already recorded rather than taking it from the caller:
+	// a partial record must preserve every judgement it is not replacing, and
+	// the manifest on disk is the only authority on those.
+	if data, err := os.ReadFile(path); err == nil {
+		if hasConflictMarkers(data) {
+			return 0, fmt.Errorf("%s has unresolved merge conflict markers. "+
+				"Resolve it by hand; recording over it would blanket-approve "+
+				"both sides unreviewed.", path)
+		}
+		if err := json.Unmarshal(data, &merged); err != nil {
+			return 0, fmt.Errorf("%s: %w", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return 0, err
+	}
+	n := 0
+	for _, f := range files {
+		h, ok := current[f]
+		if !ok {
+			// No longer owned or no longer present: recording a hash for it
+			// would assert a review of something that is not there.
+			continue
+		}
+		if merged[f] != h {
+			n++
+		}
+		merged[f] = h
+	}
+	return n, WriteManifest(path, merged)
 }
 
 // GroupByArticle renders stale files grouped by the article that owns them, so

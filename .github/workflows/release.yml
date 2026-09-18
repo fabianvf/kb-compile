@@ -1,0 +1,81 @@
+name: release
+
+# Prebuilt binaries exist so that adopting this does not require a Go
+# toolchain. The tool is meant for repositories in any language, and a gate a
+# TypeScript or Python team cannot install on their laptops and in CI without
+# first installing Go is a gate they will not adopt.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (must already exist)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          # The gate below asks git what the repo contains; a shallow clone
+          # would make it silently wrong rather than fail.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          check-latest: true
+
+      # A release that fails its own gates is a release that ships the tool
+      # contradicting itself. Cheap here, and the only moment anyone would
+      # notice is after it is published.
+      - name: test
+        run: go test -race -count=1 ./...
+
+      - name: build
+        env:
+          VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          mkdir -p dist
+          # The same five targets the ordinary build already covers. Names
+          # carry no version, so `releases/latest/download/kb_linux_amd64`
+          # is a stable URL an install script can hardcode.
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            os="${target%/*}"; arch="${target#*/}"
+            out="dist/kb_${os}_${arch}"
+            [ "$os" = windows ] && out="${out}.exe"
+            echo "building $out"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build \
+              -trimpath \
+              -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "$out" ./cmd/kb
+          done
+          cd dist && sha256sum kb_* > checksums.txt && cat checksums.txt
+
+      # Proves the artifact reports the version it was tagged with. A binary
+      # whose `kb version` disagrees with its filename makes the "pin the
+      # version" instruction in kb-init unverifiable.
+      - name: verify the stamped version
+        env:
+          VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          got=$(./dist/kb_linux_amd64 version)
+          echo "$got"
+          [ "$got" = "kb ${VERSION}" ] || {
+            echo "::error::binary reports '$got', expected 'kb ${VERSION}'"; exit 1; }
+
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --generate-notes \
+            dist/kb_* dist/checksums.txt

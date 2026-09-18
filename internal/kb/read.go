@@ -34,30 +34,74 @@ func ReadArticle(kbDir, id, section string) (string, error) {
 
 	lines := strings.Split(string(data), "\n")
 	var available []string
-	var out []string
 	want := strings.ToUpper(strings.TrimSpace(section))
-	in := false
 
-	for _, ln := range lines {
-		if strings.HasPrefix(ln, "## ") {
-			h := strings.TrimSpace(strings.TrimPrefix(ln, "## "))
-			available = append(available, h)
-			// Prefix match, so `#INVARIANT` finds `## INVARIANTS` and a
-			// citation written against a since-expanded heading still lands.
-			hu := strings.ToUpper(h)
-			in = hu == want || strings.HasPrefix(hu, want) || strings.HasPrefix(want, hu)
-			if in {
-				out = append(out, ln)
-			}
+	// Headings are collected in one pass so the match can be RESOLVED before
+	// any text is emitted. Deciding per line meant every heading that matched
+	// contributed its body, so `#I` silently returned INVARIANT and
+	// IMPLEMENTATION glued together and the agent could not tell it was
+	// reading two places at once.
+	type heading struct {
+		text  string
+		start int
+	}
+	var heads []heading
+	inFence := false
+	for i, ln := range lines {
+		if strings.HasPrefix(ln, "```") {
+			inFence = !inFence
 			continue
 		}
-		if in {
-			out = append(out, ln)
+		// A `## ` line inside a fenced block is an EXAMPLE. Treated as a real
+		// heading it truncated the section actually being read at the fence,
+		// and served the code block back as a section that does not exist.
+		if inFence || !strings.HasPrefix(ln, "## ") {
+			continue
+		}
+		h := strings.TrimSpace(strings.TrimPrefix(ln, "## "))
+		if h == "" {
+			continue
+		}
+		available = append(available, h)
+		heads = append(heads, heading{h, i})
+	}
+
+	// Exact first, then a unique prefix, so `#INVARIANT` still finds
+	// `## INVARIANTS` but an ambiguous stem says so instead of concatenating.
+	var hit []heading
+	for _, h := range heads {
+		if strings.EqualFold(h.text, want) {
+			hit = []heading{h}
+			break
 		}
 	}
-	if len(out) == 0 {
+	if len(hit) == 0 {
+		for _, h := range heads {
+			hu := strings.ToUpper(h.text)
+			if strings.HasPrefix(hu, want) || strings.HasPrefix(want, hu) {
+				hit = append(hit, h)
+			}
+		}
+	}
+	if len(hit) == 0 {
 		return "", fmt.Errorf("article %q has no section %q. It has: %s",
 			id, section, strings.Join(available, ", "))
 	}
-	return strings.Join(out, "\n"), nil
+	if len(hit) > 1 {
+		var names []string
+		for _, h := range hit {
+			names = append(names, h.text)
+		}
+		return "", fmt.Errorf("section %q is ambiguous in article %q: it "+
+			"matches %s. Name one exactly.", section, id, strings.Join(names, ", "))
+	}
+
+	// To the next heading, or to EOF for the last section.
+	end := len(lines)
+	for _, h := range heads {
+		if h.start > hit[0].start && h.start < end {
+			end = h.start
+		}
+	}
+	return strings.Join(lines[hit[0].start:end], "\n"), nil
 }

@@ -98,7 +98,7 @@ func setup(t *testing.T) (*kb.Checker, *config.Config) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tracked, err := repo.TrackedFiles(cfg.ExcludeSubstrings)
+	tracked, err := repo.TrackedFiles(cfg.ExcludedPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -484,7 +484,7 @@ func TestGoldenOrphanRatchetFailsOnNew(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tracked, err := repo.TrackedFiles(cfg.ExcludeSubstrings)
+	tracked, err := repo.TrackedFiles(cfg.ExcludedPath)
 	if err != nil {
 		t.Fatal(err)
 	}

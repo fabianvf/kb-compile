@@ -71,10 +71,11 @@ type Config struct {
 	// because the fix is different: qualify it, don't hunt for the file.
 	AmbiguityRoots []string `json:"ambiguity_roots"`
 
-	// ExcludeSubstrings drops paths from the tracked-file inventory entirely.
+	// ExcludeDirs drops paths from the tracked-file inventory entirely. Each
+	// entry is one directory NAME, matched against whole path segments.
 	// Defaults to the vendored-dependency directories that are commonly
 	// committed; set it explicitly to override rather than extend.
-	ExcludeSubstrings []string `json:"exclude_substrings"`
+	ExcludeDirs []string `json:"exclude_dirs"`
 
 	// TestRules decides what counts as a test file. Shared by the ratchet's
 	// scope rule and the test-link builder, so "is a test" means one thing.
@@ -316,6 +317,58 @@ func (c *Config) finalize() error {
 		return fmt.Errorf("prod_roots is empty: the orphan ratchet would " +
 			"govern nothing and pass vacuously")
 	}
+	// A prod root is a literal path prefix, not a glob, and the two spellings
+	// people reach for first — a trailing slash and a `dir/**` borrowed from
+	// `covers:` — match NOTHING. That empties the ratchet's scope and the run
+	// still reports OK, which is the vacuous pass the check above exists to
+	// refuse. Normalise what is unambiguous, reject what is not.
+	for i, r := range c.ProdRoots {
+		if strings.ContainsAny(r, "*?[") {
+			return fmt.Errorf("prod_roots[%d] = %q: a prod root is a "+
+				"directory prefix, not a glob. Write %q", i, r,
+				strings.TrimSuffix(strings.TrimRight(r, "*?[]"), "/"))
+		}
+		n := strings.TrimSuffix(strings.TrimPrefix(r, "./"), "/")
+		if n == "" || n == "." {
+			return fmt.Errorf("prod_roots[%d] = %q: name a directory, or "+
+				"drop the entry", i, r)
+		}
+		c.ProdRoots[i] = n
+	}
+	if len(c.ProdExtensions) == 0 {
+		// The same vacuous pass as an empty prod_roots, one field over:
+		// IsProductionSource requires a matching extension, so an empty list
+		// makes it false for every file and `kb graph` reports OK on a repo
+		// where nothing is documented.
+		return fmt.Errorf("prod_extensions is empty: no file would count as " +
+			"production source and the orphan ratchet would pass vacuously")
+	}
+	// A prod extension missing from path_extensions is invisible to the prose
+	// scanner, so an article can cite a production file by name and have that
+	// citation silently unchecked — the one guarantee this whole tool sells.
+	// The default makes them equal; an explicit narrower list does not, and
+	// nothing said so.
+	if len(c.PathExtensions) > 0 {
+		have := map[string]bool{}
+		for _, e := range c.PathExtensions {
+			have[e] = true
+		}
+		var missing []string
+		for _, e := range c.ProdExtensions {
+			if !have[e] {
+				missing = append(missing, e)
+			}
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("path_extensions is missing %s, which "+
+				"prod_extensions declares. The prose scanner only recognises a "+
+				"path whose extension is in path_extensions, so an article "+
+				"could cite a production file of that type and the citation "+
+				"would never be checked — silently, which is the failure this "+
+				"tool exists to prevent. path_extensions must be a SUPERSET "+
+				"of prod_extensions.", strings.Join(missing, ", "))
+		}
+	}
 	if len(c.PathExtensions) == 0 {
 		c.PathExtensions = c.ProdExtensions
 	}
@@ -324,14 +377,38 @@ func (c *Config) finalize() error {
 		// a subsystem manual, not nudge every article toward a target length.
 		c.MaxArticleTokens = 12000
 	}
-	if c.ExcludeSubstrings == nil {
+	if c.ExcludeDirs == nil {
 		// Committed dependency trees are not this repo's source. Without
 		// this a Go repo with a vendor/ directory or a JS repo that commits
 		// node_modules starts with thousands of orphans, and a baseline
 		// nobody could ever work through is a baseline nobody reads.
-		c.ExcludeSubstrings = []string{
-			"node_modules/", "/vendor/", "vendor/", "/venv/", "/.venv/",
-			"site-packages/", "/third_party/",
+		c.ExcludeDirs = []string{
+			"node_modules", "vendor", "venv", ".venv",
+			"site-packages", "third_party",
+		}
+	}
+	// `link_commands` rejects any edge whose test side `test_rules` does not
+	// classify as a test. TestRules has no default and IsTestFile then returns
+	// false for everything, so the two together are not merely unhelpful, they
+	// cannot both be satisfied: every edge the command emits is refused and
+	// the command is reported as broken. Catch it at load, where the fix is
+	// obvious, rather than at the first run against a real repo.
+	if len(c.LinkCommands) > 0 && c.TestRules.IsEmpty() {
+		return fmt.Errorf("link_commands is set but test_rules is empty. A " +
+			"link command's output is validated against test_rules, and with " +
+			"none configured nothing is a test, so EVERY edge it emits is " +
+			"rejected and the command fails as though the toolchain were " +
+			"broken. Declare test_rules, or drop the link command.")
+	}
+	for _, d := range c.ExcludeDirs {
+		// The predecessor took substrings, so every existing config spells
+		// these with slashes. Silently accepting `vendor/` would match no
+		// segment and quietly un-exclude a vendored tree, which reads as
+		// thousands of new orphans rather than as a config error.
+		if d == "" || strings.ContainsAny(d, "/*") {
+			return fmt.Errorf("exclude_dirs[%q] is not a directory name: "+
+				"entries are matched against whole path segments, so write "+
+				"`vendor`, not `vendor/` or `**/vendor/**`", d)
 		}
 	}
 	for k, v := range c.NotRepoPaths {
@@ -352,6 +429,14 @@ func (c *Config) finalize() error {
 			return fmt.Errorf("adapter %q: bad pattern: %w", a.Name, err)
 		}
 		a.re = re
+		// Every strategy reads capture group 1 as the import path, and the
+		// resolver indexes it unconditionally. A pattern with no group is a
+		// config mistake, and it used to surface as `panic: index out of
+		// range [1]` with a Go stack trace on the first matching file.
+		if re.NumSubexp() < 1 {
+			return fmt.Errorf("adapter %q: pattern %q has no capture group. "+
+				"Group 1 must capture the imported path", a.Name, a.Pattern)
+		}
 		switch a.Strategy {
 		case "template":
 			if len(a.Resolve) == 0 {
@@ -412,6 +497,14 @@ func (c *Config) finalize() error {
 			return fmt.Errorf("extra link kind %q: bad pattern: %w", e.Name, err)
 		}
 		e.re = re
+		// ExtraLinks reads groups 1 and 2 unconditionally, so a pattern with
+		// fewer panicked the whole gate instead of failing as the config
+		// error it is.
+		if re.NumSubexp() < 2 {
+			return fmt.Errorf("extra link kind %q: pattern %q has %d capture "+
+				"group(s), needs 2 (group 1 = key, group 2 = labels)",
+				e.Name, e.Pattern, re.NumSubexp())
+		}
 		if e.Split == "" {
 			e.Split = ","
 		}
@@ -494,12 +587,44 @@ func (c *Config) IsProductionSource(f string) bool {
 	if !hasExt {
 		return false
 	}
-	for _, s := range c.ExcludeSubstrings {
-		if strings.Contains(f, s) {
-			return false
-		}
+	if c.ExcludedPath(f) {
+		return false
 	}
 	return !c.IsTestFile(f)
+}
+
+// ExcludedPath reports whether a path lies under an excluded directory.
+//
+// Matching is on whole path SEGMENTS, and on directory segments only. The
+// predecessor matched substrings, and its default list had to carry both
+// "vendor/" and "/vendor/" to cover the root and the nested case — the
+// segment rule, hand-rolled and wrong. The unanchored spelling also matched
+// `src/myvendor/x.go` and `pkg/openvendor/a.go`, dropping real source out of
+// the inventory so that no gate ever saw it. A file this tool cannot see is
+// a file nobody is ever asked to document, which is the one failure mode a
+// documentation gate must not have.
+func (c *Config) ExcludedPath(f string) bool {
+	if len(c.ExcludeDirs) == 0 {
+		return false
+	}
+	segs := strings.Split(f, "/")
+	// The basename is not a directory. A file named `vendor` is source.
+	for _, seg := range segs[:len(segs)-1] {
+		for _, d := range c.ExcludeDirs {
+			if seg == d {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// IsEmpty reports whether no test convention is configured at all, which
+// makes IsTestFile false for every path in the repository.
+func (t TestRules) IsEmpty() bool {
+	return len(t.DirSubstrings) == 0 && len(t.PathPrefixes) == 0 &&
+		len(t.BasePrefixes) == 0 && len(t.BaseSuffixes) == 0 &&
+		len(t.PathSubstrings) == 0
 }
 
 // LangFamily reports which language a path belongs to, for the same-language

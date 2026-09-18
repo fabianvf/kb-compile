@@ -39,11 +39,96 @@ re-running `--write` silently legitimises it. The gate keeps passing and stops
 gating, which is worse than failing because nobody looks at a green build.
 
 **A missing baseline is not permission to start over.** It reads as empty, so
-every entry counts as growth and `--write` refuses; `KB_RATCHET_INIT=1` is the
+every entry counts as growth and `--write` refuses; `--init` is the
 one-time adoption path. Without this, `rm .orphans-baseline.txt && kb graph
 --write` grandfathered anything, permanently and silently, and the read-only
 error recommended that exact command. Absence is indistinguishable from
 deletion, which is the same reasoning that makes a missing manifest a failure.
+
+**An article git does not track is not part of the KB.** Every inventory in
+this tool comes from `git ls-files` except one: the article loader reads the
+KB directory off the filesystem. So an article nobody had `git add`ed passed
+every check locally, while the DIGEST and reverse index beside it - which are
+committed - went on naming it. Both of the first two repositories to adopt
+this shipped exactly that, because the pre-commit hook staged the four
+generated files and nothing else: a commit whose derived artifacts described
+seventeen articles the repo did not contain, and whose `kb graph` failed for
+everyone but the author.
+
+The check is gated on the KB having been committed at all, because the two
+states mean different things. A wholly untracked KB is somebody writing their
+first articles and is not yet a contract with anyone; a PARTLY tracked one is
+a broken commit that has already happened or is about to.
+
+**Context is pushed on `UserPromptSubmit`, because that is the only event that
+can push it.** Plain stdout from a `PreToolUse` hook is NOT added to the
+model's context, and `additionalContext` is documented only for
+`UserPromptSubmit` (checked 2026-09-17). Editing is where the knowledge matters
+most and `PreToolUse` is where you would want to intervene, so the delivery
+lands at the next best moment instead: every time the human says something.
+
+The digest goes in once per session, keyed on `session_id`. Repeating it would
+spend its whole token budget on every prompt to say nothing new, which is how a
+helpful hook becomes one people disable. Paths named in the message get
+`kb owners` output attached every time, because that half is small and is
+different each prompt.
+
+**The granularity of the RECORD matches the granularity of the CHECK.**
+`kb fresh` names articles one at a time; `kb compiled` accepts article names
+and records only what they own. It used to record every KB-owned file at once,
+because per-file recording lets you assert coverage you do not have until the
+gate is green and asserts nothing.
+
+That reasoning is sound and it produced a failure it did not anticipate. An
+agent that had genuinely reviewed three of the five articles the gate named,
+and genuinely not reviewed the other two, had exactly one truthful move: record
+nothing, leave the gate red. Which is the output a careless agent produces too.
+The gate could not separate them, so honesty cost the honest agent everything
+and bought no information. The anti-gaming argument does not call for
+coarseness - it calls for each claim to be specific and attributable, which is
+the opposite of coarse.
+
+**A gate that cannot run must say so, not stand down.** The commit hook
+tests for its config FIRST, and everything after that point is a broken
+install rather than a reason to exit quietly: past the config test the repo
+demonstrably uses this tool. Each missing piece used to be a silent `exit 0` -
+the wrong config filename, then `kb` absent from PATH, then `jq` absent - and
+the second of those is the default state right after installing the plugin,
+because the plugin cannot install the binary. Every commit then looks gated
+while none of them are.
+
+**The bootstrap hatch is a FLAG, not an environment variable.** It was
+`KB_RATCHET_INIT=1`, and the one property a bypass must not have is the
+ability to be set far away from the command it affects. An exported variable
+follows every later run, and the run it would change is the one where the
+baseline is absent - which is indistinguishable from deleted, the case this
+guard exists to refuse. `--init` has to be typed at the call site, `--help`
+lists it, and the tests no longer have to clear an ambient value that had made
+them fail accusing the code of a bug the shell had caused. `KB_COMPILE_OK`
+stays a variable because what it waives runs from a commit hook, where there
+is no command line to add a flag to.
+
+**The bootstrap hatch only applies when the baseline is ABSENT.** Honouring
+`--init` against a file that is already there makes it the `rm`
+bypass with one more token to type — and worse, both refusal messages print
+that command, so the tool would be advertising it. Gating on absence also
+scopes it correctly when one baseline is missing and the other is healthy: a
+single `kb graph --write` writes both, so an unscoped hatch would grandfather
+every dead end while the reader was adopting the orphan ratchet.
+
+**Only ENOENT reads as absence.** `readBaseline` returns everything else as
+the error it is. Collapsing a permission bit or a directory-at-the-path into
+"missing" told the reader to restore a file that was sitting right there, and
+offered them the bootstrap hatch for a baseline nobody had deleted.
+
+**A conflicted baseline is refused, not parsed.** The baselines are one entry
+per line so that they merge, which means they conflict for the same reason the
+manifest does. Read as entries, the markers make `existing` the UNION of both
+branches, so `--write` accepts an entry only one side grandfathered — and the
+read-only error said to run `--write`, which resolved the conflict silently.
+Detection is shared with the manifest and matches every marker, because
+half-resolving by hand and leaving the tail behind is the usual way to arrive
+here.
 
 **The freshness manifest is never regenerated automatically.** Not by a hook,
 not by CI, not bundled into another target. It records a judgement, and a
@@ -81,6 +166,19 @@ what is checkable and documenting what is not beats a rule that pretends.
 
 ## GOTCHA
 
+**A heading inside a fenced block is an example, not a section.** Read as a
+section it is a free pass past both ratchets: a fenced `## SEE ALSO` sample
+clears the dead-end gate, and a fenced `## FILES` sample claims ownership of
+whatever paths it shows, erasing them from the orphan gate. Any heading level
+closes the section it was in; only `## ` opens one, so a `### ` subhead no
+longer leaves `## FILES` open over the prose beneath it.
+
+**`covers:` accepts every YAML list spelling, and a scalar is an error.** A
+zero-indent `- item` and an inline `[a, b]` are both valid YAML and both used
+to parse to nothing, so a correctly-spelled `covers:` owned no files and they
+landed in the orphan baseline. That is the same silent no-op that rejecting
+unknown frontmatter keys exists to prevent, so it fails the same way.
+
 **A `## FILES` table is an ownership claim, exactly like a fenced block.**
 Reading only the fence silently dropped every table-shaped article's claims,
 and those files landed in the orphan baseline as though nothing documented
@@ -98,6 +196,17 @@ against an unfamiliar repo to notice.
 **`article_types` is optional and its absence disables `type` entirely.** A
 repo adopting this should not have to rename every existing doc. Configure it
 and it is enforced; omit it and articles may be named anything.
+
+**The section vocabulary is warned on, not enforced.** SPEC.md calls the list
+fixed and nothing checked it, so the guarantee was a sentence in a document.
+The cost is not tidiness: `DIGEST.md` and `kb owners` render only `INVARIANT`
+and `GOTCHA`, so a claim under any other heading cannot reach an agent
+choosing what to read. A 36-article KB grown over five months had 73
+`## PATTERN` sections against 14 `INVARIANT` and 18 `GOTCHA` - 87% of its
+claims unreachable, every gate reporting it clean. `CheckSectionVocabulary`
+warns rather than errors, because an existing KB should not be bricked by a
+rule it predates, and it collapses `## PATTERN: a` and `## PATTERN: b` to one
+finding so 73 variants of one mistake are not 73 lines.
 
 ## VERIFY
 

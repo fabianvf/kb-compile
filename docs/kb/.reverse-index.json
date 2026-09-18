@@ -8,12 +8,6 @@
    ],
    "tests": []
   },
-  "contrib/kb-imports-go.sh": {
-   "articles": [
-    "arch-links"
-   ],
-   "tests": []
-  },
   "hooks/hooks.json": {
    "articles": [
     "arch-gates"
@@ -37,6 +31,20 @@
     "internal/kb/judgement_test.go",
     "internal/kb/linkcommand_test.go"
    ]
+  },
+  "internal/imports/imports.go": {
+   "articles": [
+    "arch-links"
+   ],
+   "tests": [
+    "internal/imports/imports_test.go"
+   ]
+  },
+  "internal/imports/scripts/go.sh": {
+   "articles": [
+    "arch-links"
+   ],
+   "tests": []
   },
   "internal/kb/article.go": {
    "articles": [

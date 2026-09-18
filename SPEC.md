@@ -104,6 +104,65 @@ An `INVARIANT` that names no consequence is a description wearing a heading.
 A `DECISION` with no rejected alternative is not a decision, it is a fact
 about the current code - which the code already states, better.
 
+### Derivable from the file, or derivable from ONE file?
+
+The rule above — if a competent agent could get it by reading the file, delete
+it — is about the reader's whole task, not about one file in isolation. Two
+adopters read it as forbidding any restatement of a code comment, which would
+gut a KB in a well-commented repository and is not what it means.
+
+A comment can only speak for the file it is in. An article is the only place
+that can say a thing spanning files, and a claim is worth writing when:
+
+- **It spans files.** `kustomization.yaml`'s comment can explain its own hash;
+  only an article can say that editing `config.yaml` is what rolls the pods
+  and that a third file's check depends on it.
+- **It carries evidence the code cannot.** The incident, the measurement, the
+  rejected alternative, the date. `cache.files=partial` is in the source;
+  "OMV had `cache.files=off`, and this is better for the NFS re-read pattern"
+  is not.
+- **The reader would not know to open that file.** A comment found is a
+  comment you already navigated to. Routing is the article's job.
+
+So: restating a comment verbatim to fill a section is the failure the rule
+names. Lifting a reason out of a comment into the article that owns the
+cross-file obligation is the job.
+
+### Claims the freshness gate cannot check
+
+`kb fresh` hashes KB-owned **source files**. So an article holds two kinds of
+claim, and the gate can only see one of them:
+
+- **Derived from tracked files.** "`speeds.py` returns nothing when no tagged
+  section is in reach." Change the file and the gate names the article.
+- **About the world outside the repo.** A vendor's terms, a client app's
+  behaviour, an external service's rate limit, what is actually deployed. No
+  file will ever change, so **no gate will ever flag it**. It rots in place,
+  silently, and it looks exactly as authoritative as the checked kind.
+
+Three conventions cover that blind spot. They are not decoration:
+
+**Dates are absolute.** Never "recently" or "last week". An article outlives
+the conversation that produced it, and a relative date read a year later is
+worse than no date, because it still reads as current.
+
+**An assertion about state outside the repo carries the date it was
+observed.** `*Live since 2026-09-08. Two hostnames are published and gated.*`
+The date is what lets a reader decide whether to trust it or go look, which is
+the judgement the freshness gate makes for them everywhere else.
+
+**Correct a stale entry in place rather than appending a contradiction.** Two
+statements of a rule, one wrong, is worse than the wrong one alone: the reader
+has to work out which won. Where the old claim was actively misleading and
+somebody may still be acting on it, say so explicitly - "this previously said
+X, which was true until the migration and is now exactly backwards" - because
+the correction has to reach the person carrying the old rule in their head,
+not just the person reading fresh.
+
+A `DECISION` that is made but not yet carried out says so, with what it is
+waiting on. "Decided 2026-09-10, not yet done, gated on removing Geoapify and
+only on that" is actionable. "We should move off Geoapify" is a wish.
+
 ---
 
 ## 3. Ownership
@@ -225,9 +284,15 @@ requires an entry that stops being wrong to be removed by regenerating. It may
 shrink and never grow - `--write` refuses to widen either list.
 
 A missing baseline counts as EMPTY rather than as permission to start over, so
-`--write` refuses there too; `KB_RATCHET_INIT=1` records a starting state once,
-at adoption. Otherwise deleting the file would be the bypass, and absence is
+`--write` refuses to create one with entries in it; `--init` records
+a starting state once, at adoption, and is ignored once a baseline exists.
+Otherwise deleting the file would be the bypass, and absence is
 indistinguishable from deletion.
+
+The baselines are one entry per line so they merge, which means they also
+conflict. Conflict markers are refused rather than parsed: read as entries they
+make the baseline the UNION of both branches, and `--write` would then accept
+an entry only one side ever grandfathered.
 
 That refusal is the whole mechanism. If regenerating could widen a baseline,
 then adding an undocumented file and re-running `--write` would silently

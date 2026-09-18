@@ -23,7 +23,7 @@ article_types:
 # rather than "missing", and the fix is different.
 ambiguity_roots: [app, web]
 
-exclude_substrings: [node_modules, /venv/]
+exclude_dirs: [node_modules, venv]
 
 # What counts as a test. Both conventions usually coexist: a _test/.spec
 # SUFFIX and a test_ PREFIX. Missing one makes those files production source,
@@ -40,7 +40,7 @@ test_rules:
 source_extensions: [.py, .js]
 
 # Prefer a link_commands entry over these where the language has real tooling
-# (go list, madge, pydeps). See contrib/.
+# (go list, madge, pydeps). See `kb imports --help`.
 adapters:
   - name: python
     extensions: [.py]

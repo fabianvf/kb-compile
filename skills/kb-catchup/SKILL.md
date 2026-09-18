@@ -79,8 +79,14 @@ That is the exact set of production files with no KB home, derived from
 ## 2. Cluster into subsystems
 
 A subsystem is a set of files that **change together and share invariants**.
-The goal is one article per subsystem, roughly **5 to 20 files**. One file per
-article makes the KB a second copy of the tree; fifty means nobody reads it.
+The goal is one article per subsystem.
+
+Roughly **5 to 20 files** is a smell test, not a target: one file per article
+makes the KB a second copy of the tree, and fifty means nobody reads it. Where
+the invariants genuinely divide at two files, two files is the right article -
+SPEC §7 governs, and an adopter who padded to hit a count would be writing
+description. Both first-time runs produced several articles under five files
+and both were right to.
 
 **Start from the directory partition, then correct it with co-change.** Do not
 try to derive clusters from co-change alone. It looks principled and it does
@@ -144,13 +150,76 @@ gated against, and it is cheap to fix now.
 
 For each cluster, before writing a word:
 
-1. **Read the code.** All of it, not the entry point.
-2. **Read its history.** `git log -p --follow` on the two or three most-churned
+1. **Harvest the prose that already exists.** Do this FIRST, not last. A
+   repository that has been maintained by people who write things down already
+   holds reasoning nobody can re-derive, and it is sitting outside the files
+   you are about to read - so the code is in front of you and the explanation
+   is not.
+
+   ```bash
+   # Prose anywhere in the repo that already discusses this subsystem
+   git ls-files '*.md' '*.rst' '*.adoc' | xargs grep -lni 'cloudflared\|tunnel'
+   ```
+
+   Look at README files at every level, a `docs/` or `knowledge-base/` tree,
+   ADRs, incident writeups, the repo's own `AGENTS.md` or `CLAUDE.md`, and
+   long comment headers in files ADJACENT to the ones you are covering.
+
+   **Look in git history too.** A previous adoption attempt, or a doc deleted
+   in a refactor, is invisible to the command above and is often the single
+   richest source in the repo:
+
+   ```bash
+   git log --diff-filter=D --name-only --oneline -- '*.md' | head -40
+   git show <commit>^:path/to/deleted.md
+   ```
+
+   **Confirm every harvest target with `git ls-files` before citing it.** A
+   repo's own index rots exactly like the KB it is meant to feed: one adopter
+   found a `knowledge-base/README.md` listing twelve documents that no longer
+   existed, and `kb graph` fails any article that backticks one.
+
+2. **Read the code.** All of it, not the entry point. In a commented
+   language, pulling every module and function docstring in one pass is far
+   cheaper than opening files one at a time and gets most of the
+   non-derivable content at once - one adopter extracted 3,800 lines from 61
+   Python files that way. Then read the files that look interesting.
+3. **Read its history.** `git log -p --follow` on the two or three most-churned
    files. This is where decisions and gotchas actually live.
-3. **Find the bugs.** Search issues/commits for the subsystem's names. A fixed
+4. **Find the bugs.** Search issues/commits for the subsystem's names. A fixed
    bug is a `GOTCHA` with evidence attached.
-4. **Read the tests.** A test asserting something strange is usually an
+5. **Read the tests.** A test asserting something strange is usually an
    invariant nobody wrote down.
+
+This does not contradict SPEC's "if a competent agent could have derived it by
+reading the file, delete it". That rule is about the reader's whole task, not
+one file in isolation — see SPEC.md §2, "Derivable from the file, or derivable
+from ONE file?". A comment speaks only for its own file; lifting its reason
+into the article that owns the cross-file obligation is the job, and restating
+it verbatim to fill a section is the failure.
+
+**Chew on what you harvest; do not skim it.** A reason written in prose is
+usually there because somebody hit the thing, and the ones worth most are the
+ones no amount of reading the code would produce. This actually happened while
+bootstrapping a homelab repo: an article was written from
+`check-exposure.py`'s docstring and said Jellyfin is kept off the Cloudflare
+tunnel because bulk video violates TOS 2.8. The existing `exposure-policy.md`
+gave a second reason - **no Jellyfin client app can complete the Access
+browser redirect** - which is not inferable from any file in the repo, and the
+new article silently dropped it.
+
+**An article that restates existing prose more thinly is a REGRESSION, not a
+migration.** It is worse than leaving the prose alone, because the article is
+the one the reverse index points at and the one agents are told to read first,
+so the better text is displaced by the weaker one while looking authoritative.
+Before finishing an article that covers ground existing prose already covers,
+diff them in your head: every reason the prose gives and the article does not
+is a reason you are about to lose.
+
+Taking the existing text nearly verbatim is the CORRECT outcome when it is
+already good. The value you add is the frontmatter, the file ownership, the
+section structure and the checked paths - not rewording someone's hard-won
+explanation.
 
 Then write, using the sections from SPEC.md §2. The bar for each:
 
@@ -164,6 +233,11 @@ Then write, using the sections from SPEC.md §2. The bar for each:
   about the current code, which the code states better.
 - **`SEE ALSO`** - at least one, naming an *obligation* (SPEC.md §4). Required:
   an article with no outbound edge fails the dead-end ratchet.
+- **Any claim about the world outside the repo** - a vendor's terms, a client
+  app's behaviour, what is actually deployed - carries the date you checked it.
+  `kb fresh` hashes source files, so it is structurally blind to these and they
+  rot looking exactly as authoritative as the checked kind. SPEC.md §2, "Claims
+  the freshness gate cannot check". Dates absolute, never "recently".
 
 Claim the files with a `covers:` glob when the cluster is a clean subtree, or
 an explicit `## FILES` block when it is not. Prefer the glob - it keeps
@@ -172,6 +246,11 @@ covering files added later, which is exactly the point of a ratchet.
 Add the article to `INDEX.md` in the same edit. An unlinked article fails.
 
 ### Parallelising
+
+**`INDEX.md` is as central as the edges.** Step 3 says to add each article to
+it in the same edit, which is right for one author and a guaranteed clobber
+for twenty concurrent ones. When fanning out, have the agents skip both
+`INDEX.md` and `SEE ALSO`, and write both centrally after the fan-in.
 
 Clusters are independent, so this fans out well: one agent per cluster, each
 producing one article. Two rules if you do:
@@ -183,6 +262,12 @@ producing one article. Two rules if you do:
   produces dangling links and duplicated framing.
 
 ## 4. Ratchet down, in verified batches
+
+A batch must be **edge-closed**: every article a batch's `see_also` names has
+to exist by the time you verify, or `kb graph` cannot go green and the batch
+cannot close. Size the batch to the cluster of articles that reference each
+other rather than to a fixed 3-5, and defer only RECIPROCAL edges - the
+back-links - to the end. Both first-time runs hit this on their first batch.
 
 After each batch of articles:
 
@@ -206,9 +291,37 @@ kb eval
 ```
 
 This asks whether the files that change together share an article, and scores
-it against a directory baseline. If the KB is not beating plain folders, the
-articles are filing rather than describing, and the worst-scoring changes it
-prints are the merges that would fix it.
+it against a directory baseline.
+
+**Read the three rows first.** `kb eval` reports recall at the article
+boundary, recall after following one `## SEE ALSO` hop, and the directory
+baseline - with the reading cost of each. The hop row is the one to look at:
+it is how the artifact is actually used, and it is the only row comparable to
+the tree, because reading five files is not the same question as reading
+twenty-two.
+
+That gives you a cheaper lever than merging. If one hop buys a lot, the carve
+is fine and the edges are working; leave both alone. If one hop buys almost
+nothing, **fix the edges before touching the boundaries** - an edge is one
+`see_also` line and a sentence, a merge throws away an article somebody wrote.
+
+**Then read the worst-scoring changes.** They are scored AT ONE HOP: what a
+reader still misses after following the edges they were given. A low score has
+two quite different causes and only one of them is a carve problem:
+
+- **Boundaries cut across a subsystem.** The worst changes are small, touch
+  two or three articles, and keep touching the same two or three. Merge those.
+- **The repo makes sweeping commits.** The worst changes are renames, "tag
+  every service", "apply the review", dependency bumps — ten files across six
+  subsystems. **No boundary fixes those**, short of one article owning the
+  repo, which this tool's own output calls out as scoring 1.00 and routing
+  nobody. Do not merge. Say so in your report, with the commit subjects, so
+  the number is not read as a defect later.
+
+Two independent first-time runs both hit the second case, both correctly
+declined to merge, and both had to argue with this step to do it. If the top
+changes are repo-wide sweeps, a KB that loses on recall while reading a third
+as many files is working as intended.
 
 Run it after a batch, not after every article. It reads git history, so it
 needs enough articles to say anything.
@@ -233,6 +346,18 @@ kb compiled
 If you claimed files with a glob **without** reading them, say so and go read
 them. Recording a compile you did not do is the one action that breaks the gate
 permanently, silently, and for everyone.
+
+**Do this per article as you finish it, not only here.** Left to the end it
+competes with the urge to sign off, and by then the prose you would compare
+against is no longer open.
+
+**Then check you did not make anything worse.** For every article that covers
+ground the repo's existing prose already covered, open the prose one more time
+and ask what reasons it gives that the article does not. A KB whose articles
+are thinner than the docs they now shadow has made the repository harder to
+work in while reporting a green gate and an empty orphan baseline - the exact
+appearance of success. Report any doc you are leaving in place alongside an
+article, and why both should exist.
 
 ---
 

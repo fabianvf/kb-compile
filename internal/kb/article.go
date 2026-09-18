@@ -35,6 +35,21 @@ type Article struct {
 
 	SawFrontmatter bool
 
+	// SeeAlsoSection holds the targets of the `## SEE ALSO` section, which are
+	// edges too. They were counted but not collected: the section satisfied
+	// HasOutboundEdge while contributing nothing to the graph, so a KB that
+	// writes its links the way SPEC.md's own example does had no graph at all.
+	// Measured on a 36-article KB: 35 SEE ALSO sections, 0 frontmatter edges,
+	// every article an island.
+	SeeAlsoSection []string
+
+	// Sections holds every `## ` heading in the body, in order, with the
+	// leading `## ` stripped and any `: suffix` kept. Recorded so the
+	// vocabulary can be checked: SPEC.md calls the section list fixed, and
+	// nothing verified it, so a KB could put most of its content under
+	// headings the digest and `kb owners` never read.
+	Sections []string
+
 	// HasSeeAlsoSectionLink records whether a `## SEE ALSO` section contains a
 	// link to ANOTHER article. A heading with nothing under it is still a dead
 	// end, and so is one that only points at itself.
@@ -46,13 +61,32 @@ type Article struct {
 }
 
 var (
-	linkRe     = regexp.MustCompile(`\]\(([a-z0-9][a-z0-9\-]*\.md)\)`)
-	fmItemRe   = regexp.MustCompile(`^\s+-\s+(.+?)\s*$`)
+	linkRe = regexp.MustCompile(`\]\(([a-z0-9][a-z0-9\-]*\.md)\)`)
+	// Zero indent is valid YAML for a block sequence under a key, and is what
+	// most people type. Requiring leading whitespace silently dropped every
+	// entry of such a list, so a correctly-spelled `covers:` owned nothing.
+	fmItemRe   = regexp.MustCompile(`^\s*-\s+(.+?)\s*$`)
 	fmKVRe     = regexp.MustCompile(`^([a-z_]+):\s*(.*)$`)
 	boldLeadRe = regexp.MustCompile(`^\s*(?:[-*]\s*)?\*\*(.+?)\*\*`)
-	sectLinkRe = regexp.MustCompile(`\]\([^)]+\.md`)
 	headingRe  = regexp.MustCompile(`^#+\s*`)
 )
+
+// isClaimLine reports whether a line inside `## FILES` is making an ownership
+// claim, as opposed to explaining one.
+//
+// The section runs to the next heading, so a paragraph written under the table
+// used to claim every backticked path in it. SPEC §3 gives the block exactly
+// two shapes — a list or a table — and prose is neither, but the consequence
+// was not cosmetic: a path mentioned in passing was silently added to the
+// owned set and thereby ERASED from the orphan ratchet, which is the one
+// direction this tool must never move a file without being asked.
+func isClaimLine(ln string) bool {
+	t := strings.TrimSpace(ln)
+	if strings.HasPrefix(t, "|") {
+		return true // table row
+	}
+	return strings.HasPrefix(t, "- ") || strings.HasPrefix(t, "* ")
+}
 
 // pathRegexps builds the two path scanners from the configured extensions.
 // tokenRe matches a bare path at the start of a fenced line; backtickRe
@@ -131,7 +165,30 @@ func ParseArticle(cfg *config.Config, path, id string, errs *[]string) (*Article
 			case "type":
 				a.DeclaredType = val
 			case "covers", "gated_by", "see_also":
-				// `key: []` is the explicit empty form; a bare `key:` opens a list.
+				// Three valid spellings: a bare `key:` opens a block list,
+				// `key: []` is the explicit empty form, and `key: [a, b]` is
+				// the inline form. Dropping the inline one meant a
+				// correctly-spelled `covers:` owned nothing and its files
+				// landed in the orphan baseline — the same silent no-op that
+				// rejecting unknown keys exists to prevent. A scalar is not a
+				// list and now says so rather than vanishing.
+				if items, ok := parseFlowSeq(val); ok {
+					for _, it := range items {
+						switch key {
+						case "covers":
+							a.Covers = append(a.Covers, it)
+						case "gated_by":
+							a.GatedBy = append(a.GatedBy, it)
+						case "see_also":
+							a.SeeAlso = append(a.SeeAlso, it)
+						}
+					}
+				} else if val != "" {
+					*errs = append(*errs, fmt.Sprintf(
+						"%s:%d: `%s:` must be a list — either `%s: [a, b]` or "+
+							"a `- ` item per line. A bare value here is read "+
+							"as nothing at all.", path, i+1, key, key))
+				}
 			default:
 				*errs = append(*errs, fmt.Sprintf(
 					"%s:%d: unknown frontmatter key %q (allowed: id, type, covers, gated_by, see_also).",
@@ -144,14 +201,24 @@ func ParseArticle(cfg *config.Config, path, id string, errs *[]string) (*Article
 	inFiles, inSeeAlso, inFence := false, false, false
 	for i := body; i < len(lines); i++ {
 		ln := lines[i]
-		if strings.HasPrefix(ln, "## ") {
-			t := strings.TrimSpace(ln)
-			inFiles = t == "## FILES"
-			inSeeAlso = t == "## SEE ALSO"
-		}
 		if strings.HasPrefix(ln, "```") {
 			inFence = !inFence
 			continue
+		}
+		// A heading inside a fence is an EXAMPLE, not a section, and reading
+		// it as one is a free pass past both ratchets: a fenced `## SEE ALSO`
+		// sample clears the dead-end gate, and a fenced `## FILES` sample
+		// claims ownership of the paths it shows, erasing them from the
+		// orphan gate. Any heading level CLOSES the section it was in; only
+		// `## ` opens one, so a `### ` subhead no longer leaves `## FILES`
+		// open over the prose below it.
+		if !inFence && isHeading(ln) {
+			t := strings.TrimSpace(ln)
+			inFiles = t == "## FILES"
+			inSeeAlso = t == "## SEE ALSO"
+			if h, ok := strings.CutPrefix(t, "## "); ok {
+				a.Sections = append(a.Sections, strings.TrimSpace(h))
+			}
 		}
 
 		// A `## FILES` section is written in ONE of two shapes and both are
@@ -164,7 +231,7 @@ func ParseArticle(cfg *config.Config, path, id string, errs *[]string) (*Article
 				if m := tokenRe.FindStringSubmatch(ln); m != nil {
 					putIfAbsent(a.FilesBlock, m[1], i+1)
 				}
-			} else {
+			} else if isClaimLine(ln) {
 				for _, m := range backtickRe.FindAllStringSubmatch(ln, -1) {
 					// A bare filename in a table cell is shorthand relative to
 					// the path in the same cell. It cannot be resolved, so it
@@ -181,8 +248,9 @@ func ParseArticle(cfg *config.Config, path, id string, errs *[]string) (*Article
 				// cheapest way past the dead-end ratchet is a `## SEE ALSO`
 				// pointing at the article it is already in — which clears the
 				// gate while leaving the reader exactly where they started.
-				if strings.TrimSuffix(m[1], ".md") != a.ID {
+				if t := strings.TrimSuffix(m[1], ".md"); t != a.ID {
 					a.HasSeeAlsoSectionLink = true
+					a.SeeAlsoSection = append(a.SeeAlsoSection, t)
 				}
 			}
 		}
@@ -208,12 +276,60 @@ func ParseArticle(cfg *config.Config, path, id string, errs *[]string) (*Article
 	return a, nil
 }
 
+// isHeading reports whether a line is an ATX heading of any level, which
+// requires a space after the `#` run — `#foo` is a word, not a heading.
+func isHeading(ln string) bool {
+	h := strings.TrimLeft(ln, "#")
+	return len(h) != len(ln) && strings.HasPrefix(h, " ")
+}
+
+// parseFlowSeq parses a YAML inline sequence, `[a, b]`, reporting whether the
+// value was one at all. `[]` is a sequence with no items, not a non-sequence.
+func parseFlowSeq(val string) ([]string, bool) {
+	if !strings.HasPrefix(val, "[") || !strings.HasSuffix(val, "]") {
+		return nil, false
+	}
+	inner := strings.TrimSpace(val[1 : len(val)-1])
+	if inner == "" {
+		return nil, true
+	}
+	var out []string
+	for _, p := range strings.Split(inner, ",") {
+		if p = strings.Trim(strings.TrimSpace(p), `"'`); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out, true
+}
+
 // HasOutboundEdge reports whether the article points OUT at another article.
 //
 // Both forms count: the frontmatter `see_also:` is the typed edge this checker
 // validates, the `## SEE ALSO` section is the one a reader actually follows.
 func (a *Article) HasOutboundEdge() bool {
 	return len(a.SeeAlso) > 0 || a.HasSeeAlsoSectionLink
+}
+
+// OutboundEdges is every article this one points at, from either form.
+//
+// Use this for anything that WALKS the graph - retrieval, the digest, eval's
+// one-hop expansion. `SeeAlso` alone is the frontmatter contract and is the
+// right field for VALIDATING declared edges; it is the wrong field for asking
+// where a reader can get to, because most real articles declare their edges in
+// the section instead. Targets are returned without the `.md` suffix and
+// de-duplicated, in first-seen order so callers that sort get a stable result.
+func (a *Article) OutboundEdges() []string {
+	seen := map[string]bool{a.ID: true}
+	out := make([]string, 0, len(a.SeeAlso)+len(a.SeeAlsoSection))
+	for _, t := range append(append([]string(nil), a.SeeAlso...), a.SeeAlsoSection...) {
+		t = strings.TrimSuffix(t, ".md")
+		if seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	return out
 }
 
 func putIfAbsent(m map[string]int, k string, v int) {

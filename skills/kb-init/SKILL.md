@@ -42,11 +42,21 @@ kb version
 ```
 
 If it is missing, install it and pin the version - a checker that silently
-changes behaviour under a team is its own kind of drift:
+changes behaviour under a team is its own kind of drift. Prebuilt binaries
+need no Go toolchain, which matters because the repo you are adopting this
+into very often has none:
 
 ```bash
-go install github.com/fabianvf/kb-compile/cmd/kb@latest   # or a release binary
+curl -fsSL -o /usr/local/bin/kb \
+  https://github.com/fabianvf/kb-compile/releases/download/v0.2.0/kb_darwin_arm64
+chmod +x /usr/local/bin/kb
 ```
+
+Assets are `kb_{linux,darwin,windows}_{amd64,arm64}`, with `checksums.txt`
+beside them. Use a version in the URL rather than `latest/download` and write
+that version into the CI step too, so every machine runs the same checker.
+`go install github.com/fabianvf/kb-compile/cmd/kb@v0.2.0` is equivalent where
+Go is already present.
 
 ## 2. Survey the repo
 
@@ -59,18 +69,28 @@ git ls-files | grep -oE '\.[a-z0-9]+$' | sort | uniq -c | sort -rn | head -20
 
 You need answers to:
 
+- **Is this repo even code?** Ask first, because the rest follows from it. In
+  a GitOps or infrastructure repo the Kubernetes manifests, the Nix modules or
+  the Terraform ARE the product, and `prod_extensions: [.yaml]` is as correct
+  there as `.py` is elsewhere. Scoping such a repo to its handful of scripts
+  leaves most of what runs undocumented while the gate reports green.
 - **Which roots hold production source?** The ones the orphan ratchet will
   govern. Include everything that ships or runs: application code, functions,
   infra, rules files, the admin surface. Exclude vendored code and build output.
-- **Which extensions?** Real source only. Adding `.json` here means every
-  fixture needs an owning article.
+- **Which extensions?** What ships, not what supports it. The test is whether
+  changing the file changes what runs. `.json` for a fixture, no; `.yaml` for
+  a manifest Flux applies, yes.
 - **How are tests named?** Both conventions usually coexist: a `_test`/`.spec`
   **suffix** and a `test_` **prefix**. Miss one and those files get treated as
   production source, so the ratchet demands KB ownership for a test.
 - **Can the language's own tooling answer the import question?** Prefer a
   `link_commands` entry running `go list`, `madge`, `pydeps` or equivalent over
   a regex adapter. It is the real dependency graph rather than an
-  approximation, and `contrib/` has a reference script. Fall back to an adapter
+  approximation, and `kb imports LANG` has a resolver built in for Go, Python,
+  TypeScript/JavaScript, Java, Dart and Rust - each needing only `python3` and
+  `git`. Run `kb imports LANG --help` before wiring one in: it prints what
+  that resolver does and which `test_rules` it assumes, and kb hard-fails when
+  the two disagree. Omit it entirely where the language has no tests here. Fall back to an adapter
   where no such tool exists, and note that the `root` question is the one
   people get wrong there: is the import root the repo root (`""`) or a
   subdirectory?
@@ -110,11 +130,11 @@ Everything else is an opinion you can decline:
 | `kb_dir` | the KB is not at `docs/kb` |
 | `path_extensions` | articles cite files they do not own (configs, templates) |
 | `article_types` | you want a taxonomy enforced. Omit and articles may be named anything |
-| `test_rules` | the defaults miss a convention. Check BOTH: a `_test`/`.spec` suffix and a `test_` prefix |
-| `link_commands` | the language has real tooling (`go list`, `madge`). Prefer this to `adapters` |
+| `test_rules` | **almost always. There is no default** - omit it and NOTHING is a test, so every test file under a prod root becomes an orphan, and a `link_commands` entry fails outright. Check BOTH conventions: a `_test`/`.spec` suffix and a `test_` prefix |
+| `link_commands` | the language is supported AND the repo has tests in it. `command: [kb, imports, LANG]` for go, python, typescript, javascript, java, dart or rust; the resolver ships inside the binary. **Omit it where a supported language has no tests** - an empty result is a hard failure, so configuring one there fails the build. Prefer it to `adapters` |
 | `adapters` | no such tool exists. The `root` question is the one people get wrong: is the import root the repo root (`""`) or a subdirectory? |
 | `ambiguity_roots` | prose cites paths like `core/engine.py` that are not repo-root-relative |
-| `exclude_substrings` | the defaults are wrong. An explicit list REPLACES them, so re-list what you still want |
+| `exclude_dirs` | the defaults are wrong. Entries are directory NAMES matched against whole path segments (`vendor`, not `vendor/`). An explicit list REPLACES the defaults, so re-list what you still want |
 
 Start `not_repo_paths` and `generated_paths` **empty**. They earn entries one
 at a time, each with a written reason, when the checker flags something. If you
@@ -133,9 +153,6 @@ kb graph 2>&1 | head
 Expect it to fail on a missing KB directory. That is the correct failure at
 this point; it means the config loaded.
 
-After this, every regeneration is a plain `kb graph --write`, which may only
-shrink the baselines.
-
 **Re-run this step alone to change the config later** - adding a language,
 widening a root, swapping an adapter for a `link_commands` entry. Regenerate
 with `kb graph --write` afterwards and read the diff: widening `prod_roots` or
@@ -144,18 +161,73 @@ baseline, which is the check working.
 
 ## 4. Create the KB directory
 
-`kb graph` needs at least one article, so create `INDEX.md` plus one real
-article. Make it a genuine one - pick the subsystem you know best and write
-something true, so the first article sets the standard rather than being a
-placeholder everyone copies.
+**A fresh directory, even if the repo already has docs.** `docs/kb/` holds
+articles, which are a different artifact from prose documentation: they carry
+frontmatter, they claim ownership of source files, and every path in them is
+checked. Pointing `kb_dir` at an existing `docs/` or `knowledge-base/` makes
+every file in it an article, so every one fails frontmatter at once and the
+gate cannot run until all of them are converted. The existing docs are not in
+the way and do not need migrating - leave them alone.
+
+Do not put the articles in `.kb/` beside the config either, however tidy that
+looks. Ripgrep and `fd` skip hidden directories by default, so the KB would be
+invisible to the search an agent runs when it does not yet know which article
+it needs.
+
+**Write TWO articles, not one.** An article with no outbound `## SEE ALSO`
+edge is a dead end, so a single seed article is grandfathered into the
+dead-ends baseline on the first write and the KB starts life owing a debt.
+Two articles that genuinely point at each other start the graph at zero dead
+ends and demonstrate the edge a third author will copy.
+
+Pick two subsystems you know well and that really do relate - the thing and
+the thing it calls - and write something true about each. The seeds set the
+standard, and a placeholder is the standard everyone copies.
+
+**Harvest the repo's existing prose before writing either one.** README files
+at every level, a `docs/` or `knowledge-base/` tree, ADRs, incident writeups,
+`AGENTS.md`:
+
+```bash
+git ls-files '*.md' '*.rst' '*.adoc' | xargs grep -lni '<subsystem name>'
+```
+
+Code comments are the easy source and they are right in front of you; prose
+elsewhere in the repo is the valuable one and it is easy to miss. Writing a
+seed from docstrings alone, with a doc in the tree that explains the same
+subsystem better, produces an article that looks authoritative, gets indexed,
+and is a thinner version of text that already existed. That is the exact
+failure this happened to hit on its first real run - see kb-catchup step 3,
+which carries the incident.
+
+Where existing prose says it well, take it nearly verbatim. What you are
+adding is frontmatter, file ownership, section structure and checked paths.
 
 ```
 docs/kb/
 ├── INDEX.md          # links every article; an unlinked article fails
-└── arch-<slug>.md
+├── arch-<a>.md       # `## SEE ALSO` -> arch-<b>, with a reason
+└── arch-<b>.md       # `## SEE ALSO` -> arch-<a>, with a reason
 ```
 
 `INDEX.md` is the hub. Every article must be linked from it.
+
+**`git add docs/kb` before running `kb graph`.** An article git does not track
+is not part of the KB, and `kb graph` says so once anything under `docs/kb` is
+committed. Staging is not committing; do it as you write.
+
+If the repo already has `docs/kb` generated files committed but no articles -
+a DIGEST and reverse index describing a KB that is not there - that is the
+broken state step 7's hook exists to prevent, and you are adopting into it.
+Delete the stale baselines and let step 5 recreate them:
+`rm -f docs/kb/.orphans-baseline.txt docs/kb/.dead-ends-baseline.txt`. A
+committed EMPTY baseline is the trap: `--init` is ignored when a baseline
+exists and `--write` refuses to grow one, so without deleting it first
+adoption cannot start at all.
+
+A `## SEE ALSO` reason names a specific obligation or invariant in the target,
+not a topic. "See arch-b for the cache" is a topic; "arch-b owns the eviction
+order these writes depend on" is the reason the reader needs.
 
 ## 5. Generate the baselines
 
@@ -163,19 +235,30 @@ The first write is the one time a ratchet is allowed to start non-empty, so it
 has to be asked for explicitly:
 
 ```bash
-KB_RATCHET_INIT=1 kb graph --write
+kb graph --write --init
 ```
 
-Without that variable `--write` refuses to create a baseline with entries in
-it, and it should: a missing baseline is indistinguishable from a deleted one,
-so treating absence as "start fresh" would make `rm .orphans-baseline.txt`
-a way to grandfather anything. Use it once, here, and never again.
+Without `--init`, `--write` refuses to create a baseline with entries in it,
+and it should: a missing baseline is indistinguishable from a deleted one, so
+treating absence as "start fresh" would make `rm .orphans-baseline.txt` a way
+to grandfather anything.
+
+Use it once, here. It only has an effect when the baseline does not exist, so
+it cannot widen anything later - after this step every regeneration is a plain
+`kb graph --write`, which may only shrink.
 
 This writes the reverse index and both baselines. **Read the orphan count out
-loud to yourself** - it is the size of the catchup job and worth knowing before
+loud to yourself** - from what `kb graph --write --init` printed, not from
+`wc -l` on the baseline, which counts the header too - it is the size of the catchup job and worth knowing before
 you promise anything.
 
-Then commit these. They are part of the contract, not scratch output.
+Stage **the whole `docs/kb` directory** - the articles, `INDEX.md` and the
+four generated files together. Hold the commit until step 9: the freshness
+manifest is not written until then, so a commit made here fails `kb fresh` for
+anybody who pulls it. They are part of the contract, not scratch
+output, and committing the generated half without the articles is worse than
+committing neither: the derived files then describe a KB the repo does not
+have.
 
 ## 6. Wire it into the build
 
@@ -194,6 +277,32 @@ worse than none - it reports a clean KB while articles point nowhere.
 Add the same two to CI. If the repo has a `pre-push` or PR gate, `kb graph`
 belongs there too.
 
+**If the repo has no lint entrypoint, do not invent one.** Step 2 anticipates
+"bare CI" and this is that case: put both commands in CI and rely on the hook
+locally, rather than adding a Makefile to a repo that has never had one.
+
+**A NEW CI file can itself fail the ratchet you just set.** If `.github/` is
+inside a prod root, the workflow you add is production source with no owning
+article. Add the two steps to an existing workflow, or claim the new one in a
+seed article.
+
+CI needs the binary, and installing it is one step - not a language toolchain.
+Pin the same version the team runs locally, and use a full clone: both gates
+ask git what the repo contains, and `kb eval` walks history, so a shallow one
+makes them silently wrong rather than failing.
+
+```yaml
+- uses: actions/checkout@v4
+  with: { fetch-depth: 0 }
+- name: install kb
+  run: |
+    curl -fsSL -o /usr/local/bin/kb \
+      https://github.com/fabianvf/kb-compile/releases/download/v0.2.0/kb_linux_amd64
+    chmod +x /usr/local/bin/kb
+- run: kb graph
+- run: kb fresh
+```
+
 ## 7. Install the pre-commit hook
 
 Regenerate the reverse index on commit, because it is **derived** - stale means
@@ -206,9 +315,33 @@ wrong, so rewriting it freely is correct:
 # a hook that regenerates a judgement makes the freshness gate pass always.
 if git diff --cached --name-only | grep -qE '^(docs/kb/|<your-roots>/)'; then
   kb graph --write >/dev/null || exit 1
-  git add docs/kb/.reverse-index.json docs/kb/.orphans-baseline.txt \
-          docs/kb/.dead-ends-baseline.txt
+  # The whole KB directory, NOT just the four generated files.
+  #
+  # An earlier version of this hook staged only the generated ones. That is
+  # the worst possible subset: the derived files name the articles they were
+  # built from, so a commit carrying them without their source produces a repo
+  # whose DIGEST and reverse index point at articles it does not contain, and
+  # whose `kb graph` fails for everyone except the author. It happened in both
+  # of the first two repositories to adopt this, unnoticed in both.
+  git add docs/kb
 fi
+```
+
+`kb graph` now refuses an untracked article once the KB has been committed, so
+this hook is a convenience rather than the only thing standing between you and
+that commit. Keep both.
+
+Install the context hook too, on `UserPromptSubmit`. It injects the digest
+once per session and attaches `kb owners` output for any file the message
+names. Measured: two agents given a real bug in a repo whose `AGENTS.md` tells
+them to look a file up before changing it both went straight to grep and never
+opened the KB at all. Telling an agent the knowledge exists does not get it
+read; putting it in front of them might.
+
+```json
+"UserPromptSubmit": [
+  {"hooks": [{"type": "command", "command": "<plugin>/hooks/kb-context.sh"}]}
+]
 ```
 
 **Never add `kb compiled` to a hook.** If you take one thing from this skill,
@@ -263,7 +396,9 @@ kb graph && kb fresh && echo "gates green"
 Then report, with the numbers rather than a summary:
 
 - orphan baseline: N files (the catchup worklist)
-- dead ends: N articles
+- dead ends: N articles. Two seed articles pointing at each other makes this
+  ZERO. Anything else means a seed has no outbound edge, and the baseline has
+  just grandfathered it
 - what got wired where
 
 Then run **`kb-catchup`** to start shrinking the orphan baseline.

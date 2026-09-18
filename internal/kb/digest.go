@@ -25,13 +25,34 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
-// Sections whose contents are worth surfacing in the digest. These are the
-// claims an agent is deciding between: what must stay true, what has bitten
-// someone, and what was chosen on purpose. FILES and SEE ALSO are covered by
-// the frontmatter lines, and STEPS/COMMANDS are only useful in full.
-var digestSections = []string{"INVARIANT", "GOTCHA", "DECISION"}
+// Sections whose contents are worth surfacing in the digest.
+//
+// The digest ROUTES: its own header says "read this to decide what to open".
+// INVARIANT and GOTCHA answer that - they say what a file is responsible for
+// and what has gone wrong there. DECISION answers a different question, why
+// the code is shaped as it is, which matters once you have opened the file and
+// not in choosing it. It stays in the article; `kb read <id>` still has it.
+//
+// Measured on 20 localisation tasks over a repo with a real KB
+// (`bench/route.py`): routing on INVARIANT+GOTCHA alone reached the file the
+// fix touched in 57.5% of cases at R@25, against 47.5% when DECISION claims
+// were included. Adding them did not merely fail to help, it diluted. With
+// claim volume held equal across five seeds, instructions scored roughly twice
+// overviews at every k.
+//
+// That matches Gloaguen et al. (arXiv:2602.11988), who found "instructions in
+// the context files are well followed by coding agents, repository overviews,
+// although popular and recommended by model providers, are not helpful".
+//
+// The hazard, stated because this is a decision made partly from a metric:
+// dropping DECISION optimises for the thing that was measured. It could carry
+// value for writing a good change rather than finding the right file, and that
+// is not what `bench/route.py` sees. FILES and SEE ALSO are covered by the
+// frontmatter lines, and STEPS/COMMANDS are only useful in full.
+var digestSections = []string{"INVARIANT", "GOTCHA"}
 
 // maxClaimsPerSection caps how much of a long section reaches the digest. An
 // article with fifteen invariants would otherwise dominate, which defeats the
@@ -88,8 +109,14 @@ func (c *Checker) BuildDigest() []ArticleDigest {
 		}
 		d := ArticleDigest{
 			ID: id, Type: a.DeclaredType, Tokens: EstimateTokens(len(data)),
-			Covers: a.Covers, GatedBy: a.GatedBy, SeeAlso: a.SeeAlso,
-			Claims: map[string][]string{}, Extra: map[string]int{},
+			Covers: a.Covers, GatedBy: a.GatedBy,
+			// COPY, not the article's own slice. The merge below appends into
+			// whatever spare capacity ParseArticle left, and the sort then
+			// reorders in place, so sharing the backing array silently
+			// rewrote `Article.SeeAlso` — dropping a declared edge and making
+			// a second BuildDigest render a different digest.
+			SeeAlso: append([]string(nil), a.SeeAlso...),
+			Claims:  map[string][]string{}, Extra: map[string]int{},
 		}
 		// The `## SEE ALSO` section is an edge just as much as the frontmatter
 		// key, and most articles use only one of the two. Merge them so the
@@ -133,27 +160,40 @@ func (c *Checker) BuildDigest() []ArticleDigest {
 func extractClaims(body, section string) []string {
 	lines := strings.Split(body, "\n")
 	var claims []string
-	in, paraStart := false, true
+	in, paraStart, inFence := false, true, false
 
 	for _, ln := range lines {
-		if strings.HasPrefix(ln, "## ") {
+		// The fence delimiter was skipped but its CONTENTS were not, so a
+		// YAML or code sample inside a section had its lines read as prose
+		// and bullets. Each one became a headline claim and evicted a real
+		// one past the per-section cap, which is the opposite of what the
+		// routing table is for.
+		if strings.HasPrefix(ln, "```") {
+			inFence = !inFence
+			continue
+		}
+		if !inFence && strings.HasPrefix(ln, "## ") {
 			in = strings.TrimSpace(strings.TrimPrefix(ln, "## ")) == section
 			paraStart = true
 			continue
 		}
-		if !in {
+		if !in || inFence {
 			continue
 		}
 		if strings.TrimSpace(ln) == "" {
 			paraStart = true
 			continue
 		}
-		if strings.HasPrefix(ln, "```") || strings.HasPrefix(ln, "|") {
+		if strings.HasPrefix(ln, "|") {
 			continue
 		}
 
 		if m := boldClaimRe.FindStringSubmatch(ln); m != nil {
-			claims = appendClaim(claims, clean(m[1]+" "+m[2]))
+			// firstSentence, like the other two branches. Without it the
+			// claim ran to the end of the PHYSICAL line, so every bold claim
+			// in a hard-wrapped article ended in a dangling fragment of the
+			// next sentence, with no ellipsis to mark the cut.
+			claims = appendClaim(claims, clean(firstSentence(m[1]+" "+m[2])))
 			paraStart = false
 			continue
 		}
@@ -205,7 +245,14 @@ func truncate(s string) string {
 	}
 	cut := strings.LastIndex(s[:claimChars], " ")
 	if cut < claimChars/2 {
+		// claimChars is a BYTE offset, so falling back to it can split a
+		// multi-byte rune and write invalid UTF-8 into DIGEST.md — which
+		// CheckDigest then compares byte-for-byte, making the mojibake
+		// permanent. Back up to the nearest rune boundary.
 		cut = claimChars
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
 	}
 	return strings.TrimRight(s[:cut], " .,;:") + "..."
 }

@@ -2,13 +2,30 @@ package kb
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/fabianvf/kb-compile/internal/config"
 )
+
+// linkCommandTimeout bounds a single link command.
+//
+// Generous on purpose: the value is not the interesting part, finiteness is.
+// These commands run from a pre-commit hook, so an unbounded one does not
+// fail, it wedges the commit with no output and nothing to read — the one
+// failure a developer cannot diagnose and will work around by disabling the
+// hook. A repo whose import graph genuinely takes longer than this should
+// cache it in a script rather than make every commit wait.
+//
+// A var so the test can shorten it: a test that proves the deadline fires by
+// waiting for the real one is a test nobody runs.
+var linkCommandTimeout = 60 * time.Second
 
 // BuildOwnership maps source path -> the article ids claiming it.
 //
@@ -35,6 +52,18 @@ func (c *Checker) BuildOwnership() map[string][]string {
 		}
 		for _, g := range a.Covers {
 			for _, f := range c.Tracked {
+				// A `covers:` glob describes a subsystem, and `exclude_dirs`
+				// says which directories are not subsystems. Without this,
+				// `covers: functions/**` silently takes ownership of every
+				// vendored dependency under it and the reverse index doubles
+				// in size with paths nobody will ever be asked to document.
+				//
+				// An explicit `## FILES` entry above is deliberately NOT
+				// filtered: naming one path by hand is a claim about that
+				// path, not a glob that caught it by accident.
+				if c.Cfg.ExcludedPath(f) {
+					continue
+				}
 				if GlobMatches(f, g) {
 					add(f, id)
 				}
@@ -400,12 +429,21 @@ func (c *Checker) RunLinkCommands() map[string][]string {
 	links := map[string]map[string]bool{}
 
 	for _, lc := range c.Cfg.LinkCommands {
-		cmd := exec.Command(lc.Command[0], lc.Command[1:]...)
+		ctx, cancel := context.WithTimeout(context.Background(), linkCommandTimeout)
+		cmd := exec.CommandContext(ctx, resolveSelf(lc.Command[0]), lc.Command[1:]...)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()
+		cancel()
 		if err != nil {
 			msg := strings.TrimSpace(stderr.String())
+			// A killed command reports "signal: killed", which reads as a
+			// crash in the script rather than as the deadline this package
+			// imposed. Naming the timeout is the difference between hunting
+			// a bug in the tool and raising the limit or fixing the hang.
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				err = fmt.Errorf("timed out after %s", linkCommandTimeout)
+			}
 			if lc.Optional {
 				c.warnf("link command %q failed, so its links are missing "+
 					"from the reverse index (which will then read as stale): "+
@@ -464,6 +502,29 @@ func (c *Checker) RunLinkCommands() map[string][]string {
 		}
 	}
 	return flatten(links)
+}
+
+// resolveSelf rewrites a bare `kb` to the running executable.
+//
+// `command: [kb, imports, python]` is the documented way to use a built-in
+// resolver, and taking it literally would look `kb` up on PATH — so running
+// the checker by an absolute path, which CI and any `go run` do, fails with
+// "executable file not found" for a binary that is plainly right there.
+//
+// It also makes true the property the embedded resolvers exist for: the
+// resolver that produces the edges is the one shipped inside the checker
+// consuming them, rather than whichever `kb` happens to be earlier on PATH.
+// Only the bare name is rewritten; a path like `./kb` is the caller being
+// specific and is left alone.
+func resolveSelf(name string) string {
+	if name != "kb" {
+		return name
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return name // fall back to PATH; the error surfaces at exec
+	}
+	return self
 }
 
 // MergeLinks unions two link maps. Adapters and commands can both be

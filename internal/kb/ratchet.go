@@ -1,6 +1,7 @@
 package kb
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -44,7 +45,7 @@ const deadEndHeaderTmpl = "# KB articles with no outbound `## SEE ALSO` edge, as
 	"# To remove an entry: add a `## SEE ALSO` link whose reason names a specific\n" +
 	"# obligation or invariant in the target article, not a topic.\n"
 
-// BootstrapEnv creates a baseline for the first time.
+// BootstrapFlag creates a baseline for the first time.
 //
 // It has to exist, because a repo adopting this has to record its starting
 // orphans somehow. It has to be EXPLICIT, because the alternative is what
@@ -52,32 +53,80 @@ const deadEndHeaderTmpl = "# KB articles with no outbound `## SEE ALSO` edge, as
 // `rm .orphans-baseline.txt && kb graph --write` widened the ratchet
 // silently and permanently. The read-only error even recommended that exact
 // command.
-const BootstrapEnv = "KB_RATCHET_INIT"
+//
+// It is a FLAG and not an environment variable, because the one input a
+// bypass must not have is the ability to be set far from the command. An
+// exported variable follows every later run, and the run it would change is
+// the one where the baseline is absent — which is indistinguishable from
+// deleted, the case the whole guard exists to refuse. A flag has to be typed
+// at the call site, and `--help` lists it.
+const BootstrapFlag = "--init"
 
-// readBaseline returns the entries of a baseline file, and whether it existed.
+// ErrNoBaseline reports an absent baseline.
 //
 // A missing file reads as EMPTY rather than as an error, so every entry counts
 // as growth and `--write` refuses. Absence must not be a bypass: it is
 // indistinguishable from deletion, which is the same reasoning that makes a
-// missing freshness manifest a failure rather than a skip.
-func readBaseline(path string) (map[string]bool, bool) {
+// missing freshness manifest a failure rather than a skip. It is a sentinel
+// rather than a second return value so that the two state files this package
+// guards — the baselines and the freshness manifest — model absence the same
+// way, and so that "unreadable" cannot collapse into "missing".
+var ErrNoBaseline = errors.New("baseline is missing")
+
+// readBaseline returns the entries of a baseline file.
+//
+// Only ENOENT reads as absence. Reporting an unreadable file (a permission
+// bit, a directory left at the path, an I/O error) as missing would send the
+// reader to `git checkout` for a file that is already there, and would offer
+// them the bootstrap hatch for a baseline nobody deleted.
+func readBaseline(path string) (map[string]bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return map[string]bool{}, false
+		if os.IsNotExist(err) {
+			return map[string]bool{}, ErrNoBaseline
+		}
+		return nil, err
+	}
+	// A baseline is one entry per line for the same reason the manifest is,
+	// so it conflicts for the same reason too. Left undetected, the markers
+	// parse as entries and `existing` becomes the UNION of both sides, which
+	// lets `--write` accept an entry only one side ever grandfathered — the
+	// widening this whole file exists to refuse.
+	if hasConflictMarkers(data) {
+		return nil, fmt.Errorf(
+			"%s has unresolved merge conflict markers.\n\n"+
+				"Resolve it by hand, keeping the NARROWER side. Do NOT run "+
+				"`kb graph --write` to make this go away: the markers parse "+
+				"as entries, so the union of both branches' grandfathered "+
+				"lists would be written back as if it had always been there.",
+			path)
 	}
 	out := map[string]bool{}
 	for _, l := range strings.Split(string(data), "\n") {
-		if t := strings.TrimSpace(l); t != "" && !strings.HasPrefix(l, "#") {
+		// The comment test is on the TRIMMED line. Testing the raw line
+		// turned an indented `  # note` into an entry, and the build then
+		// failed reporting that a comment no longer qualified as a file.
+		if t := strings.TrimSpace(l); t != "" && !strings.HasPrefix(t, "#") {
 			out[t] = true
 		}
 	}
-	return out, true
+	return out, nil
 }
 
 // writeRatchet writes entries to path, refusing if that would GROW the list.
 func (c *Checker) writeRatchet(path, header string, entries []string, noun, fix string) {
-	existing, existed := readBaseline(path)
-	bootstrap := os.Getenv(BootstrapEnv) == "1"
+	existing, err := readBaseline(path)
+	missing := errors.Is(err, ErrNoBaseline)
+	if err != nil && !missing {
+		c.errf("%v", err)
+		return
+	}
+	// Bootstrap is the ONE time a ratchet may start non-empty, so it only
+	// applies when there is no baseline to widen. Honouring it against a file
+	// that is already there would make `kb graph --write --init` the same
+	// silent, permanent bypass as the `rm` it replaced, one token longer —
+	// and both this refusal and `checkRatchet` print that command.
+	bootstrap := missing && c.AllowRatchetInit
 
 	if !bootstrap {
 		var added []string
@@ -92,14 +141,18 @@ func (c *Checker) writeRatchet(path, header string, entries []string, noun, fix 
 			if len(shown) > 5 {
 				shown, ellipsis = shown[:5], "\n  …"
 			}
+			// The caller's `fix` is what a reader needs whether or not the
+			// baseline is there, so the missing-file note is prepended to it
+			// rather than replacing it: a first-time adopter with 200 orphans
+			// still has to be told what claiming a file means.
 			why := fix
-			if !existed {
+			if missing {
 				why = fmt.Sprintf("%s is missing, so every entry counts as "+
 					"growth. If this repo is adopting the ratchet for the "+
 					"first time, record the starting state explicitly:\n"+
-					"    %s=1 kb graph --write\n  Otherwise restore the file: "+
-					"deleting it is not a way to widen the ratchet.",
-					path, BootstrapEnv)
+					"    kb graph --write %s\n  Otherwise restore the file: "+
+					"deleting it is not a way to widen the ratchet.\n  %s",
+					path, BootstrapFlag, fix)
 			}
 			c.errf("refusing to write %s: it would GROW by %d %s, which would "+
 				"widen the ratchet.\n  %s%s\n  %s",
@@ -120,16 +173,22 @@ func (c *Checker) writeRatchet(path, header string, entries []string, noun, fix 
 
 // checkRatchet compares current state against the committed baseline.
 func (c *Checker) checkRatchet(path string, current []string, onNew func(string), noun string) {
-	baseline, existed := readBaseline(path)
-	if !existed {
-		// Deliberately does NOT recommend `--write`, which was the bypass:
-		// the old message told the reader to run the exact command that
-		// widened the ratchet.
+	baseline, err := readBaseline(path)
+	if errors.Is(err, ErrNoBaseline) {
+		// Deliberately does NOT recommend a bare `--write`, which was the
+		// bypass: the old message told the reader to run the exact command
+		// that widened the ratchet. The bootstrap form named here refuses
+		// once the file is back, so it cannot stand in for the restore.
 		c.errf("%s is missing. It is the record of what was already "+
 			"grandfathered, so its absence is not \"nothing to compare\", it "+
-			"is \"nothing is known\". Restore it from git. Only if this repo "+
-			"is adopting the ratchet for the first time, record the starting "+
-			"state with `%s=1 kb graph --write`.", path, BootstrapEnv)
+			"is \"nothing is known\". Restore it with `git checkout -- %s`. "+
+			"Only if this repo is adopting the ratchet for the first time, "+
+			"record the starting state with `kb graph --write %s`.",
+			path, path, BootstrapFlag)
+		return
+	}
+	if err != nil {
+		c.errf("%v", err)
 		return
 	}
 	cur := map[string]bool{}

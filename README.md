@@ -187,7 +187,7 @@ Regex adapters approximate a resolver. `link_commands` asks the real one:
 ```yaml
 link_commands:
   - name: go
-    command: [contrib/kb-imports-go.sh]
+    command: [kb, imports, go]
 ```
 
 The command emits `<test file>\t<production file>`, one edge per line, both
@@ -199,7 +199,31 @@ languages are not all served by one approach.
 Measured against the regex adapters on a 505-file Go repo: `go list` found 8
 tests for `engine/engine.go` where the regex found 4, and correctly found none
 for `cmd/analyzer/main.go` where the regex produced a match from an unrelated
-program. `contrib/kb-imports-go.sh` is the reference implementation.
+program.
+
+`kb imports LANG` carries a resolver for six languages **inside the binary**,
+so nothing of this tool has to be copied into your repository and the resolver
+is versioned with the checker that reads its output. Each needs only `python3`
+and `git` - no language toolchain, no installed dependency tree - so the answer
+is a function of the committed files and cannot differ between a fresh clone
+and a working machine:
+
+| `kb imports` | Resolves |
+|---|---|
+| `go` | `go list`, unioning `IgnoredGoFiles` so the answer does not change with `GOOS` |
+| `python` | `ast`, with `src/` layouts and `from pkg import mod` preferred over the package's `__init__.py` |
+| `typescript` / `javascript` | relative and tsconfig `paths` specifiers, `/index` resolution, and `.js` specifiers that are `.ts` on disk |
+| `java` | explicit imports, wildcard imports, and same-package references with no import at all |
+| `dart` | `package:` through every pubspec in the tree, following `part` directives into the library |
+| `rust` | `mod` declarations walked from each crate root, hyphenated crate names included |
+
+Rust has a caveat worth reading before you configure it: its usual
+`#[cfg(test)] mod tests` lives inside the file it tests, which is not a
+cross-file edge, so a crate with only inline tests correctly produces nothing.
+`kb imports rust` says so on stderr rather than leaving you to guess.
+
+An unlisted language is not something to wait for. A link command is any
+program that emits the two columns, so point `command:` at your own.
 
 A failing command is a hard error, not an empty column, because an empty
 column reads as "no links needed". So is a command that exits 0 having emitted
@@ -303,10 +327,35 @@ message is written as a fix rather than a diagnostic.
 
 ### Installing
 
+Two halves, and the plugin is only one of them. The skills and the commit hook
+come from the plugin; the gates they invoke are the `kb` binary, and the plugin
+cannot install it for you.
+
 ```bash
 /plugin marketplace add fabianvf/kb-compile
 /plugin install kb-compile
 ```
+
+Then the binary. Prebuilt, no Go toolchain required - pick your platform from
+`kb_{linux,darwin,windows}_{amd64,arm64}`:
+
+```bash
+curl -fsSL -o /usr/local/bin/kb \
+  https://github.com/fabianvf/kb-compile/releases/latest/download/kb_darwin_arm64
+chmod +x /usr/local/bin/kb
+kb version
+```
+
+`checksums.txt` ships alongside them. Pin a release rather than tracking
+`latest` where more than one person runs the gate: a checker that changes
+behaviour under a team is its own kind of drift. Replace `latest/download`
+with `download/v0.2.0` to do that.
+
+With Go on the machine, `go install github.com/fabianvf/kb-compile/cmd/kb@latest`
+works too, and reports the module version it was built from.
+
+In CI, the same curl line is usually all that is needed - no `setup-go` step,
+because the gate is a static binary and not a Go project concern.
 
 For other editors, `kb-init` writes the KB section into **`AGENTS.md`** and has
 any tool-specific file import it, so there is one copy rather than several that
@@ -322,15 +371,6 @@ where the contract stays honest.
 It works. Writing these four articles, the gate caught a change to `eval.go`
 made after the compile was recorded and named the owning article to re-read.
 That is the intended failure, on its author, within an hour of the KB existing.
-
-## Status
-
-Working: both checkers, the config layer, the golden harness, `SPEC.md`, four
-skills, the commit hook.
-
-Untried: everything past this repo. `kb-init` and `kb-catchup` have not been
-run against a real codebase yet, and the config survey in `kb-init` is the part
-most likely to need adjusting on first contact.
 
 ## Provenance
 

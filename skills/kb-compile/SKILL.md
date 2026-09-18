@@ -41,8 +41,9 @@ rather than all of it:
 
 ```bash
 kb read arch-scoring#INVARIANT
-``` You are looking for four specific things - not "does this feel
-current":
+```
+
+You are looking for four specific things - not "does this feel current":
 
 1. **Statements that are now false.** A named function that was renamed, a
    count that moved, an invariant the change deliberately broke. This is the
@@ -57,6 +58,12 @@ current":
    new "these two must change together".
 4. **Paths that moved.** `kb graph` catches dangling paths, but it cannot tell
    you that a path is still valid and now describes something else.
+5. **Dated claims about anything outside the repo.** No file change will ever
+   flag these, so this pass is the only time anyone looks. If the change you
+   are compiling touched the thing an old dated assertion describes, recheck
+   it and restamp it - or delete it, if checking is not worth the effort.
+   An undated external claim is one to date now. SPEC.md §2, "Claims the
+   freshness gate cannot check".
 
 Then fix the article. Editing prose is the job; the checker only ever tells you
 where to look.
@@ -65,6 +72,18 @@ where to look.
 no article edit at all, and "no change needed" is a legitimate and common
 outcome. Adding a paragraph so the compile feels productive is how a KB gets
 fat and stops being read.
+
+**Never shorten a reason into a summary of itself.** Rewriting is how a stated
+reason quietly becomes a restated fact: "kept off the tunnel because bulk video
+violates TOS 2.8 and no client app can complete the Access redirect" is two
+reasons, and compressing it to "kept off the tunnel for TOS reasons" loses the
+half nobody can re-derive. If a paragraph is genuinely too long, the fix is to
+cut the description around the reason, not the reason.
+
+If the change was informed by something written down outside the article - a
+commit message that argued a case, a README, an incident writeup - read that
+before editing, and carry the reasoning across rather than paraphrasing the
+diff. See kb-catchup step 3.
 
 ## 3. Handle files with no owning article
 

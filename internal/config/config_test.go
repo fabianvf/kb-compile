@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -112,5 +113,37 @@ func TestDiscoverRefusesAmbiguity(t *testing.T) {
 		t.Error("two configs were accepted; one of them is stale and nothing said so")
 	} else if !strings.Contains(err.Error(), "config.json") {
 		t.Errorf("the error does not name both files: %v", err)
+	}
+}
+
+// TestExcludeDirsRejectsTheSubstringSpelling pins that a slash is an error.
+//
+// The field took SUBSTRINGS, and its default list carried both "vendor/" and
+// "/vendor/" to cover the root and the nested case — the segment rule
+// hand-rolled, and wrong: the unanchored spelling also matched
+// `src/myvendor/x.go`, dropping real source out of the inventory so that no
+// gate ever asked anyone to document it.
+//
+// Every config written against the old field spells these with a slash, and a
+// slash matches no segment. Accepting it would silently un-exclude a vendored
+// tree, which surfaces as thousands of new orphans and reads as a bug in the
+// ratchet rather than as the config change it is.
+func TestExcludeDirsRejectsTheSubstringSpelling(t *testing.T) {
+	for _, bad := range []string{"vendor/", "/vendor/", "**/vendor/**", ""} {
+		p := filepath.Join(t.TempDir(), "c.yaml")
+		body := fmt.Sprintf("prod_roots: [src]\nprod_extensions: [.go]\n"+
+			"exclude_dirs: [%q]\n", bad)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Load(p)
+		if err == nil {
+			t.Errorf("exclude_dirs[%q] was accepted; it matches no path "+
+				"segment, so the exclusion silently does nothing", bad)
+			continue
+		}
+		if !strings.Contains(err.Error(), "exclude_dirs") {
+			t.Errorf("the error for %q does not name the field: %v", bad, err)
+		}
 	}
 }

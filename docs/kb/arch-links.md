@@ -5,7 +5,8 @@ covers:
   - internal/kb/links.go
   - internal/kb/reverseindex.go
   - internal/repo/git.go
-  - contrib/**
+  - internal/imports/imports.go
+  - internal/imports/scripts/**
 see_also:
   - arch-gates
 ---
@@ -41,7 +42,7 @@ language's resolver approximately. `go list` knows the graph exactly, including
 build tags, aliased imports and generated code. Measured on a 505-file Go repo:
 `go list` found 8 tests for one file where the regex found 4, and correctly
 found none for an entry point where the regex matched an unrelated program's
-test. This repo uses `contrib/kb-imports-go.sh` on itself.
+test. This repo uses `kb imports go` on itself.
 
 **A failing link command is fatal, and so is one that emits nothing.** The
 rejected alternative, degrading to an empty column, is indistinguishable from
@@ -75,6 +76,109 @@ a nested directory is a different package this import did not pull in.
 **The reverse index is regenerated and compared byte for byte.** That is why
 nothing in its construction may be non-deterministic, and why an LLM cannot be
 in this path. Map iteration order is sorted everywhere for the same reason.
+PLATFORM is part of that: `go list` reports only the files that build for the
+current `GOOS` (checked 2026-09-11), so the Go resolver unions in
+`IgnoredGoFiles`.
+Without it a package with `x_linux.go` and `x_darwin.go` produced a different
+index on each machine, and the CI matrix rejected an artifact its author could
+not reproduce.
+
+**A link command that over-reports is worse than one that under-reports.**
+The reverse index is what an agent reads to decide which files to open, so a
+spurious edge costs context on every lookup while a missing one costs it once.
+The Dart script followed every directive of an imported library rather than
+only its `part` files, which pulled in whatever that library imported and
+multiplied a real Flutter app's index from 711 edges to 3212 - while reading,
+from the outside, as thoroughness.
+
+**Directory exclusion scopes OWNERSHIP, not existence.** `exclude_dirs` says
+"these files need no article"; it does not say "these files are not in the
+repo". The two were one thing - the exclusion was applied to the tracked-file
+set at load - and that set answers both "what must be documented" and "is a
+path an article cites real". So an article citing a test file from a `VERIFY`
+section was told its own correct reference was dangling: on a repo excluding
+its test directories, 154 false errors burying 8 genuine ones. The exclusion
+now lives where ownership is decided - `IsProductionSource` for the orphan
+ratchet, and the `covers:` glob expansion in `BuildOwnership`, so a broad glob
+cannot silently take ownership of a vendored tree. An explicit `## FILES`
+entry is deliberately NOT filtered: naming one path by hand is a claim about
+that path, not a glob that caught it by accident.
+
+**Directory exclusion matches whole path SEGMENTS.** A false positive there is
+invisible rather than noisy: the file is simply never asked for. The field took substrings, and its own default list had to
+carry both `vendor/` and `/vendor/` to cover the root and the nested case -
+the segment rule, hand-rolled and wrong, because the unanchored spelling also
+swallowed every directory whose name merely ended in `vendor`. The predicate
+lives on `Config` and `repo.TrackedFiles` takes it as an argument, so the
+inventory and `IsProductionSource` cannot come to disagree about a path.
+
+**`git ls-files` needs `-z`.** `core.quotePath` is on by default (git 2.x,
+checked 2026-09-11), so without it
+a path containing any non-ASCII byte comes back C-quoted and octal-escaped:
+`src/café.go` arrives as the literal `"src/caf\303\251.go"`. That matches no
+prod root and no `covers:` glob, so the file is silently outside every gate,
+while a link command reporting its real UTF-8 path is told git does not track
+it. The same loop deduplicates, because a conflicted path is listed once per
+merge stage and mid-merge is exactly when someone runs this.
+
+**A link command runs under a deadline.** These commands are external
+programs, and `kb graph` is called from a pre-commit hook, so an unbounded one
+does not fail - it wedges the commit with no output and nothing to read. That
+is the one failure a developer cannot diagnose and will work around by
+disabling the hook, taking every other check with it. A timed-out command is
+reported as timed out rather than as `signal: killed`, which would send the
+reader to debug the script instead of the limit.
+
+**The resolvers ship INSIDE the binary, not in the adopting repo.** They
+were scripts to copy into `contrib/`, which put this tool's code in somebody
+else's repository and decoupled the resolver from the checker consuming its
+output - a repo could sit on a year-old copy and watch edges quietly diverge
+from what the current kb expects. Embedded, they are versioned with the binary
+and CI needs no step to fetch them. They stay shell-and-Python rather than
+being rewritten in Go because that is the part most likely to need per-repo
+tweaking, and Go is the hardest part for an adopter to tweak.
+
+**A bare `kb` in a link command means THIS binary, not PATH.** `command: [kb,
+imports, python]` is the documented spelling, and resolving it through PATH
+broke every invocation by absolute path - which is how CI runs it and how `go
+run ./cmd/kb` runs it - with "executable file not found" for a binary that was
+executing at the time. Rewriting it to `os.Executable()` also makes the
+embedding argument true rather than merely likely: the resolver producing the
+edges is the one inside the checker reading them, not whichever `kb` is first
+on PATH. A spelled path like `./kb` is the caller being specific and is left
+alone.
+
+**Only a list item or a table row inside `## FILES` claims a file.** The
+section runs to the next heading, so a paragraph written under the table used
+to claim every backticked path in it. That is not cosmetic: an owned file is
+removed from the orphan ratchet, so mentioning a path while explaining the
+table silently took it out of the gate - the one direction this tool must not
+move a file unasked. SPEC §3 gives the block two shapes, a list and a table,
+and prose is neither.
+
+**A link command must not need its language's toolchain installed.** The
+resolvers need `python3` and `git` and nothing else - not `pip
+install -e .`, not `npm ci`, not a resolved Maven cache. A resolver that reads
+an installed dependency tree answers a question about the MACHINE, so the
+committed reverse index would differ between a fresh clone and a working
+laptop, and `CheckReverseIndex` compares it byte for byte. That is the same
+failure `git ls-files` exists to prevent, arriving through the language
+instead of the filesystem.
+
+**A link command's output is filtered against the tracked set.** `go list`
+walks the filesystem; git decides what exists. One untracked scratch test file
+otherwise turned the whole gate red, once per edge, with advice that was wrong
+twice over.
+
+**A `## SEE ALSO` section contributes EDGES, not just a boolean.** The parser
+recorded `HasSeeAlsoSectionLink` and discarded the targets, so the section
+satisfied "does this article have an outbound edge?" while contributing
+nothing to "where does that edge go?". Anything that WALKS the graph saw an
+empty graph on any KB declaring its edges in the section - which is the form
+SPEC.md's own example uses. `Article.OutboundEdges()` is the union of both
+forms, de-duplicated and self-excluding, and is the right call for traversal;
+`SeeAlso` alone remains the frontmatter contract and the right field for
+validating declared edges.
 
 ## VERIFY
 

@@ -6,9 +6,9 @@
 
 kb_dir: docs/kb
 
-# cmd/ and internal/ are the program. contrib/ and hooks/ ship to users and
+# cmd/ and internal/ are the program. hooks/ ships to users and
 # are as load-bearing as the Go: a broken hook silently stops gating.
-prod_roots: [cmd, internal, contrib, hooks]
+prod_roots: [cmd, internal, hooks]
 prod_extensions: [.go, .sh]
 
 # Wider than prod_extensions: articles cite the fixture's config and the
@@ -28,7 +28,7 @@ source_extensions: [.go]
 # recommendation the README makes, so the repo had better take it.
 link_commands:
   - name: go
-    command: [./contrib/kb-imports-go.sh]
+    command: [go, run, ./cmd/kb, imports, go]
 
 stem_rules:
   - suffix: _test.go

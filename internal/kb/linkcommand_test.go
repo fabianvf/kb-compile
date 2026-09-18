@@ -9,8 +9,10 @@ package kb
 // make some flavour of "quietly produced no links" loud.
 
 import (
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fabianvf/kb-compile/internal/config"
 )
@@ -170,4 +172,59 @@ func anyContains(hay []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// TestLinkCommandTimesOut pins that a hanging command cannot hang the gate.
+//
+// These commands run from a pre-commit hook. An unbounded one does not fail,
+// it wedges the commit with no output and nothing to read — the failure a
+// developer cannot diagnose and works around by disabling the hook, which
+// turns off every other check with it.
+func TestLinkCommandTimesOut(t *testing.T) {
+	prev := linkCommandTimeout
+	linkCommandTimeout = 150 * time.Millisecond
+	t.Cleanup(func() { linkCommandTimeout = prev })
+
+	done := make(chan []string, 1)
+	go func() {
+		c := cmdChecker(t, []string{"app/engine.go"}, `sleep 30`, false)
+		c.RunLinkCommands()
+		done <- c.Errors
+	}()
+
+	select {
+	case errs := <-done:
+		// "signal: killed" would mean it was bounded but reported as a crash
+		// in the script, sending the reader to debug the wrong program.
+		if !anyContains(errs, "timed out") {
+			t.Errorf("the deadline fired but the error does not name it: %v", errs)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a hanging link command was not bounded; the gate waits forever, " +
+			"which from a commit hook is a wedged commit with no output")
+	}
+}
+
+// TestLinkCommandResolvesBareKbToSelf pins that `command: [kb, ...]` works
+// when the checker was invoked by a path rather than found on PATH.
+//
+// That is how CI runs it, how `go run ./cmd/kb` runs it, and how anyone who
+// has not installed it globally runs it. Looking `kb` up on PATH failed with
+// "executable file not found" for a binary that was plainly executing at the
+// time. It also makes true the property the embedded resolvers exist for: the
+// resolver is the one inside THIS checker, not whichever kb is first on PATH.
+func TestLinkCommandResolvesBareKbToSelf(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Skip("no executable path available")
+	}
+	if got := resolveSelf("kb"); got != self {
+		t.Errorf("resolveSelf(\"kb\") = %q, want the running binary %q", got, self)
+	}
+	// A caller who wrote a path meant that path.
+	for _, spelled := range []string{"./kb", "/usr/local/bin/kb", "go", "sh"} {
+		if got := resolveSelf(spelled); got != spelled {
+			t.Errorf("resolveSelf(%q) = %q, want it left alone", spelled, got)
+		}
+	}
 }

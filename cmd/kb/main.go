@@ -16,10 +16,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 
 	"github.com/fabianvf/kb-compile/internal/config"
+	"github.com/fabianvf/kb-compile/internal/imports"
 	"github.com/fabianvf/kb-compile/internal/kb"
 	"github.com/fabianvf/kb-compile/internal/repo"
 )
@@ -31,20 +33,53 @@ USAGE
                          reverse index and the two ratchet baselines.
   kb fresh               Fail if KB-owned source has changed since the last
                          recorded compile.
-  kb compiled            Record that a compile just reviewed the current
-                         content. Never run this from a hook.
+  kb compiled [ARTICLE...] Record that a compile just reviewed the current
+                         content. With article names, records only what those
+                         articles own, so reviewing three of five is sayable.
+                         Never run this from a hook.
   kb read ID[#SECTION]   Print an article, or one section of it. Reading one
                          section of a large article costs a few hundred tokens
                          instead of tens of thousands.
   kb eval                Score the article boundaries against git history: do
                          the files that change together share an article?
+  kb owners FILE...      What do I need to know before changing this file?
+                         The owning articles and their invariants, from the
+                         reverse index. One command instead of a jq expression.
+  kb imports LANG        Print tab-separated test/source edges for a language,
+                         by resolving its real import graph. Meant for a
+                         link_commands entry rather than for reading.
   kb version
 
 FLAGS
   --config PATH          Config file (default: ` + config.DefaultPath + `,
                          falling back to .yml or .json)
   --root PATH            Repository root (default: current directory)
+  --init                 graph only, with --write: record a first ratchet
+                         baseline that starts non-empty. Adoption only; it is
+                         refused once a baseline exists, so it cannot widen
+                         one.
 `
+
+// version is stamped by the release workflow with -ldflags. It is deliberately
+// empty by default rather than a plausible-looking number: kb-init tells teams
+// to pin the version, and a binary that reports one it cannot substantiate
+// makes that instruction unfollowable.
+var version = ""
+
+// kbVersion prefers the stamped value, then the module version the Go
+// toolchain embeds. The second is what a `go install ...@v0.2.0` build has,
+// and without it every such binary would claim to be a dev build.
+func kbVersion() string {
+	if version != "" {
+		return version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		if v := bi.Main.Version; v != "" && v != "(devel)" {
+			return v
+		}
+	}
+	return "dev"
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -57,17 +92,62 @@ func main() {
 	cfgPath := fs.String("config", "", "config file (default: .kb/config.yaml)")
 	root := fs.String("root", "", "repository root")
 	write := fs.Bool("write", false, "regenerate derived artifacts")
+	ratchetInit := fs.Bool("init", false, "graph: with --write, record a first "+
+		"ratchet baseline that starts non-empty")
+	helpFlag := fs.Bool("help", false, "imports: print a resolver's notes")
 	quiet := fs.Bool("quiet", false, "suppress the OK line")
 	evalCommits := fs.Int("commits", 500, "eval: how much history to walk")
 	evalMaxFiles := fs.Int("max-files", 15, "eval: skip commits touching more than this")
 	evalWorst := fs.Int("worst", 5, "eval: how many low-scoring changes to show")
 	_ = fs.Parse(os.Args[2:])
 
+	// A bootstrap that silently does nothing is worse than one that refuses:
+	// the adopter sees exit 0, assumes the baselines were recorded, and finds
+	// out at the next commit. Both spellings that cannot bootstrap say so.
+	if *ratchetInit {
+		if cmd != "graph" {
+			die("%s only applies to `kb graph`.", kb.BootstrapFlag)
+		}
+		if !*write {
+			die("%s has no effect without --write: it relaxes what --write may "+
+				"create, and on its own there is nothing to relax. Run "+
+				"`kb graph --write %s`.", kb.BootstrapFlag, kb.BootstrapFlag)
+		}
+	}
+
+	if cmd == "imports" {
+		// `kb imports <lang> --help` prints the resolver's own notes, which
+		// say what it resolves and which test_rules it assumes. kb-init tells
+		// adopters to read that before configuring one, and the scripts live
+		// inside this binary, so this is the only way to reach it.
+		if fs.NArg() != 1 {
+			die("usage: kb imports <%s> [--help]\n"+
+				"  `kb imports <lang> --help` prints what that resolver does "+
+				"and which test_rules it assumes.",
+				strings.Join(imports.Names(), "|"))
+		}
+		if *helpFlag {
+			h, err := imports.Header(fs.Arg(0))
+			if err != nil {
+				die("%v", err)
+			}
+			fmt.Println(h)
+			return
+		}
+		// Deliberately ahead of config discovery. This reads the repository,
+		// not the KB, and its first use is while writing the config that does
+		// not exist yet.
+		if err := imports.Run(fs.Arg(0), os.Stdout, os.Stderr); err != nil {
+			die("%v", err)
+		}
+		return
+	}
+
 	switch cmd {
 	case "version":
-		fmt.Println("kb 0.1.0-dev")
+		fmt.Println("kb " + kbVersion())
 		return
-	case "graph", "fresh", "compiled", "read", "eval":
+	case "graph", "fresh", "compiled", "read", "eval", "owners":
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		return
@@ -116,7 +196,19 @@ func main() {
 		return
 	}
 
-	tracked, err := repo.TrackedFiles(cfg.ExcludeSubstrings)
+	// The full tracked set, INCLUDING excluded directories.
+	//
+	// `exclude_dirs` means "these files need no article", not "these files do
+	// not exist". Filtering here conflated the two, because this one set
+	// answers both "what must be documented" and "is this cited path real".
+	// On a repo excluding its test directories, 154 articles that cite a test
+	// file from a VERIFY section failed with "not tracked by git" - the KB was
+	// being told its own correct references were dangling.
+	//
+	// Ownership is filtered where ownership is built instead: the orphan
+	// ratchet already goes through IsProductionSource, which applies the
+	// exclusion, and BuildOwnership applies it to `covers:` globs.
+	tracked, err := repo.TrackedFiles(nil)
 	if err != nil {
 		die("%v", err)
 	}
@@ -127,6 +219,7 @@ func main() {
 	}
 
 	c := kb.New(cfg, articles, tracked)
+	c.AllowRatchetInit = *ratchetInit
 	c.Errors = append(c.Errors, parseErrs...)
 
 	// The graph pass always runs: `fresh` needs its ownership map, and
@@ -136,11 +229,19 @@ func main() {
 	c.CheckArticleEdges()
 	c.CheckFileEdges()
 	c.CheckGlobsAreLive()
+	c.CheckArticlesAreTracked()
+	c.CheckSectionVocabulary()
 	c.CheckSectionAnchors()
 	c.CheckIndex()
 	ownership := c.BuildOwnership()
 
 	switch cmd {
+	case "owners":
+		if fs.NArg() == 0 {
+			die("usage: kb owners <file>...")
+		}
+		fmt.Print(c.Owners(ownership, fs.Args()))
+
 	case "graph":
 		c.CheckDeadEndRatchet(*write)
 		c.CheckOrphanRatchet(ownership, *write)
@@ -178,9 +279,39 @@ func main() {
 			report(c, cfg, ownership, *quiet)
 			return
 		}
-		_, current, err := kb.Freshness(cfg.ManifestPath(), c.OwnedForFreshness(ownership))
+		owned := c.OwnedForFreshness(ownership)
+		_, current, err := kb.Freshness(cfg.ManifestPath(), owned)
 		if err != nil && !errors.Is(err, kb.ErrNoManifest) {
 			die("%v", err)
+		}
+		// With article names, record only what those articles own. `kb fresh`
+		// names articles one at a time, so the record has to be able to answer
+		// at the same grain — otherwise an agent who reviewed three of five
+		// can only stay silent, and silence is what a careless one emits too.
+		if fs.NArg() > 0 {
+			var files []string
+			for _, id := range fs.Args() {
+				id = strings.TrimSuffix(id, ".md")
+				if c.Articles[id] == nil {
+					die("no article %q in %s. `kb compiled` with no arguments "+
+						"records every KB-owned file.", id, cfg.KBDir)
+				}
+				for f, arts := range ownership {
+					for _, a := range arts {
+						if a == id {
+							files = append(files, f)
+						}
+					}
+				}
+			}
+			n, err := kb.MergeManifest(cfg.ManifestPath(), current, files)
+			if err != nil {
+				die("%v", err)
+			}
+			stale, _, _ := kb.Freshness(cfg.ManifestPath(), owned)
+			fmt.Printf("kb compiled: recorded %d file(s) for %s. %d file(s) "+
+				"still unreviewed.\n", n, strings.Join(fs.Args(), ", "), len(stale))
+			return
 		}
 		if err := kb.WriteManifest(cfg.ManifestPath(), current); err != nil {
 			die("%v", err)

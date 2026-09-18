@@ -49,6 +49,8 @@ type EvalResult struct {
 	Files   int
 	Recall  float64
 	Reach   float64 // mean files reachable from one entry point
+	Recall1 float64 // same, following one `## SEE ALSO` hop
+	Reach1  float64 // what that hop costs to read
 	BaseR   float64 // same recall, with directories as articles
 	BaseCh  float64 // mean files in the entry file's directory
 	Worst   []EvalCase
@@ -82,6 +84,39 @@ func (c *Checker) Evaluate(ownership map[string][]string, maxCommits, maxFiles i
 		}
 	}
 
+	// article -> the articles one `## SEE ALSO` hop away, both directions.
+	//
+	// Without this, eval scored a PARTITION and not a graph: reach was the
+	// files of the entry's own articles and nothing else, so the edge - the
+	// one affordance a KB has that a directory tree does not - earned exactly
+	// zero. That made merging the only lever the score could see, which is
+	// why the advice kept pushing it even where the edges were the right fix.
+	//
+	// Edges are followed in BOTH directions because a reader follows them
+	// that way: an article naming another is a reason to open it, and being
+	// named by one is the same reason arriving from the other side.
+	hop := map[string]map[string]bool{}
+	link := func(x, y string) {
+		if hop[x] == nil {
+			hop[x] = map[string]bool{}
+		}
+		hop[x][y] = true
+	}
+	// Both edge forms. Walking `SeeAlso` alone measured the frontmatter
+	// contract rather than the graph a reader can traverse, and on a KB that
+	// declares its edges in `## SEE ALSO` sections - which is what SPEC.md's
+	// own example does - that is a graph with no edges in it. Eval then
+	// reported the one-hop score as identical to the zero-hop score and the
+	// KB looked flat when it was merely unreadable to this loop.
+	for id, art := range c.Articles {
+		for _, t := range art.OutboundEdges() {
+			if _, ok := c.Articles[t]; ok {
+				link(id, t)
+				link(t, id)
+			}
+		}
+	}
+
 	commits, err := commitFileSets(maxCommits)
 	if err != nil {
 		return nil, err
@@ -100,15 +135,24 @@ func (c *Checker) Evaluate(ownership map[string][]string, maxCommits, maxFiles i
 	}
 
 	res := &EvalResult{}
-	var sumR, sumReach, sumBaseR, sumBaseCh float64
+	var sumR, sumReach, sumBaseR, sumBaseCh, sumR1, sumReach1 float64
 	for _, cm := range commits {
 		var owned []string
+		unowned := 0
 		for _, f := range cm.files {
 			if !c.Cfg.IsProductionSource(f) {
 				continue
 			}
+			// A path git no longer tracks cannot be owned and is not a
+			// coverage gap: it is a file that was deleted. Counting it as
+			// unowned reported a documentation hole on a repo whose orphan
+			// baseline was ZERO, and the reader has no way to tell the two
+			// apart from the number alone.
+			if !c.trackSet[f] {
+				continue
+			}
 			if len(ownership[f]) == 0 {
-				res.Unowned++
+				unowned++
 				continue
 			}
 			owned = append(owned, f)
@@ -116,11 +160,17 @@ func (c *Checker) Evaluate(ownership map[string][]string, maxCommits, maxFiles i
 		if len(owned) < 2 || len(owned) > maxFiles {
 			continue
 		}
+		// Counted only for commits that are SCORED. Counting it before this
+		// filter drew the numerator from every commit walked and the
+		// denominator from the handful that qualified, so the ratio the
+		// report asks the reader to judge — how much of the repo the score
+		// covers — was inflated by commits that contributed no score at all.
+		res.Unowned += unowned
 
 		// Average over every choice of entry file, rather than picking one.
 		// Which file an agent happens to touch first is arbitrary, and a KB
 		// should not score differently depending on that.
-		var cR, cReach, cBaseR, cBaseCh float64
+		var cR, cReach, cBaseR, cBaseCh, cR1, cReach1 float64
 		worstR, worstMissed := 2.0, []string(nil)
 		target := map[string]bool{}
 		for _, f := range owned {
@@ -128,17 +178,45 @@ func (c *Checker) Evaluate(ownership map[string][]string, maxCommits, maxFiles i
 		}
 		for _, entry := range owned {
 			reach := map[string]bool{}
+			reach1 := map[string]bool{}
 			for _, a := range ownership[entry] {
 				for f := range owns[a] {
 					reach[f] = true
+					reach1[f] = true
+				}
+				// One hop, and only one: an agent follows the edge it was
+				// given a reason to follow. Transitive closure would credit
+				// the KB for a walk nobody takes and would converge on "the
+				// whole repo" in any well-connected graph.
+				for n := range hop[a] {
+					for f := range owns[n] {
+						reach1[f] = true
+					}
 				}
 			}
-			hit, missed := 0, []string(nil)
+			hit1, missed1 := 0, []string(nil)
+			for f := range target {
+				if reach1[f] {
+					hit1++
+				} else {
+					missed1 = append(missed1, f)
+				}
+			}
+			r1 := float64(hit1) / float64(len(target))
+			cR1 += r1
+			cReach1 += float64(len(reach1))
+			// The worst list is scored AT ONE HOP, because that is what a
+			// reader actually fails to find. Scored at zero it named changes
+			// the edges already covered, and its stated remedy - merge these
+			// articles - would have destroyed a working carve to fix a number
+			// that was measuring the wrong thing.
+			if r1 < worstR {
+				worstR, worstMissed = r1, missed1
+			}
+			hit := 0
 			for f := range target {
 				if reach[f] {
 					hit++
-				} else {
-					missed = append(missed, f)
 				}
 			}
 			r := float64(hit) / float64(len(target))
@@ -155,17 +233,17 @@ func (c *Checker) Evaluate(ownership map[string][]string, maxCommits, maxFiles i
 			}
 			cBaseR += float64(bh) / float64(len(target))
 			cBaseCh += float64(len(dir))
-
-			if r < worstR {
-				sort.Strings(missed)
-				worstR, worstMissed = r, missed
-			}
 		}
+		sort.Strings(worstMissed)
+
 		n := float64(len(owned))
 		cR, cReach = cR/n, cReach/n
+		cR1, cReach1 = cR1/n, cReach1/n
 		cBaseR, cBaseCh = cBaseR/n, cBaseCh/n
 		sumR += cR
 		sumReach += cReach
+		sumR1 += cR1
+		sumReach1 += cReach1
 		sumBaseR += cBaseR
 		sumBaseCh += cBaseCh
 		res.Commits++
@@ -185,6 +263,8 @@ func (c *Checker) Evaluate(ownership map[string][]string, maxCommits, maxFiles i
 	n := float64(res.Commits)
 	res.Recall = sumR / n
 	res.Reach = sumReach / n
+	res.Recall1 = sumR1 / n
+	res.Reach1 = sumReach1 / n
 	res.BaseR = sumBaseR / n
 	res.BaseCh = sumBaseCh / n
 	sort.Slice(res.Worst, func(i, j int) bool {
@@ -247,8 +327,39 @@ func (r *EvalResult) Render(worstN int) string {
 	fmt.Fprintf(&b, "  %d commits scored, %d file touches\n\n", r.Commits, r.Files)
 	fmt.Fprintf(&b, "  KB          recall %.2f   reading %.0f files on average\n",
 		r.Recall, r.Reach)
+	fmt.Fprintf(&b, "  + one hop   recall %.2f   reading %.0f files on average\n",
+		r.Recall1, r.Reach1)
 	fmt.Fprintf(&b, "  directories recall %.2f   reading %.0f files on average\n\n",
 		r.BaseR, r.BaseCh)
+
+	// One hop is where the KB and the tree become comparable. Reading four
+	// files is not the same question as reading twenty-two, and judging the
+	// two at different costs is what made a KB that beats the tree at matched
+	// cost report as though it were losing.
+	// Comparable means COMPARABLE: within about half again either way. An
+	// earlier cut accepted anything above 0.75x the tree's cost and then told
+	// a reader that 38 files against 9 was the same question.
+	ratioCost := ratio(r.Reach1, r.BaseCh)
+	matched := ratioCost >= 0.6 && ratioCost <= 1.6
+	if matched && r.Recall1 > r.BaseR+0.02 {
+		fmt.Fprintf(&b, "  Following one `## SEE ALSO` hop, the KB recalls %.2f "+
+			"reading %.0f\n  files - against the tree's %.2f for %.0f. At "+
+			"comparable cost it finds\n  %.0f points more of each change. The "+
+			"edges are carrying that, not\n  the boundaries: they are worth "+
+			"%.0f points over the articles alone.\n\n",
+			r.Recall1, r.Reach1, r.BaseR, r.BaseCh,
+			(r.Recall1-r.BaseR)*100, (r.Recall1-r.Recall)*100)
+	} else if r.Recall1 > r.Recall+0.05 {
+		fmt.Fprintf(&b, "  One `## SEE ALSO` hop is worth %.0f points of recall, "+
+			"for %.0f files\n  read instead of %.0f. That is the edges doing "+
+			"their job; a reader who\n  follows them finds most of a change.\n\n",
+			(r.Recall1-r.Recall)*100, r.Reach1, r.Reach)
+	} else {
+		b.WriteString("  One `## SEE ALSO` hop adds almost nothing. The edges " +
+			"are decorative:\n  they point somewhere true but not somewhere " +
+			"the changes go. That is\n  cheaper to fix than the carve - see " +
+			"the worst cases below.\n\n")
+	}
 
 	// The verdict has to weigh both columns. Equal recall for half the
 	// reading is a win, and an earlier version called it "filing rather than
@@ -257,6 +368,10 @@ func (r *EvalResult) Render(worstN int) string {
 	delta := r.Recall - r.BaseR
 	eff, baseEff := ratio(r.Recall, r.Reach), ratio(r.BaseR, r.BaseCh)
 	switch {
+	case matched && r.Recall1 > r.BaseR+0.02:
+		// Already answered, at the only cost where the two are the same
+		// question. Saying "recalls LESS than directories" underneath that
+		// is true of a different operating point and reads as a correction.
 	case delta >= -0.02 && eff > baseEff*1.15:
 		fmt.Fprintf(&b, "  The KB gets %.0f%% more recall per file read than plain\n"+
 			"  directory structure. Its boundaries are doing work the tree\n"+
@@ -271,6 +386,19 @@ func (r *EvalResult) Render(worstN int) string {
 			"  and is no cheaper to read. Its boundaries cut across the way the\n"+
 			"  code changes, so an agent would do better reading the folder.\n\n",
 			-delta*100)
+	case delta < -0.02:
+		// Materially worse recall but cheaper per file read. Without this
+		// branch the case fell through to the default, which told the reader
+		// the KB scored "about the same on both" while it was missing most
+		// of every change — the one verdict that cannot be allowed to be
+		// wrong, because it is the sentence people act on.
+		fmt.Fprintf(&b, "  The KB recalls %.0f points LESS of each change than the\n"+
+			"  directory structure does, but reads %.0f files to the tree's\n"+
+			"  %.0f. That is a trade rather than a wash: the articles are\n"+
+			"  narrower than the tree, so each is cheaper to read and each\n"+
+			"  misses more. The worst cases below say whether what they miss\n"+
+			"  is the kind of change this repo actually makes.\n\n",
+			-delta*100, r.Reach, r.BaseCh)
 	default:
 		b.WriteString("  The KB scores about the same as plain directory structure,\n" +
 			"  on both recall and reading cost. Its articles are filing rather\n" +
@@ -288,11 +416,16 @@ func (r *EvalResult) Render(worstN int) string {
 	b.WriteString("  Recall alone is gamed by one article owning the repo, which\n" +
 		"  scores 1.00 and routes nobody. Read it against the reach column:\n" +
 		"  higher recall for fewer files read is the actual goal.\n\n")
+	b.WriteString("  The worst cases below are scored AT ONE HOP - what a reader\n" +
+		"  misses after following the edges they were given. A change the\n" +
+		"  edges already cover is not a boundary problem.\n\n")
 
 	if r.Unowned > 0 {
-		fmt.Fprintf(&b, "  %d file touches were in production source with no owning\n"+
-			"  article, and are excluded. A large number here means the score\n"+
-			"  describes a small documented corner rather than the repo.\n\n", r.Unowned)
+		fmt.Fprintf(&b, "  %d file touches in the scored commits were production\n"+
+			"  source with no owning article, and are excluded. Read it against\n"+
+			"  the %d touches that were scored: a large share here means the\n"+
+			"  score describes a small documented corner, not the repo.\n\n",
+			r.Unowned, r.Files)
 	}
 
 	if len(r.Worst) > 0 {
