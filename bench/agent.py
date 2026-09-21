@@ -19,10 +19,16 @@ correction afterwards is the better run.
 
 THE ARMS
 --------
-    none   the repository with its knowledge base removed - articles, the
-           CLAUDE.md section pointing at them, the compiled-gate hook, and the
-           kb-compile skill. Everything else byte-identical.
-    kb     the repository as it actually ships.
+    none    the repository with its knowledge base removed - articles, the
+            CLAUDE.md section pointing at them, the compiled-gate hook, and
+            the kb-compile skill. Everything else byte-identical.
+    kb      the repository as it actually ships.
+    kb-mig  the same articles rewritten into the SPEC.md vocabulary by
+            migrate.py. Same ids, same `covers:` globs, same files owned -
+            only the form of the claims differs, which is the whole point.
+            Each tree gets ITS OWN articles migrated, never today's, because
+            the tasks span five months and today's KB describes fixes that
+            had not been made yet.
 
 Anything that differs between the arms beyond the KB is a confound, so the
 stripping is done by one function and listed in full in STRIP.
@@ -38,6 +44,7 @@ always that the harness left its own notes where the subject could read them.
 
 import argparse
 import concurrent.futures as cf
+import hashlib
 import json
 import os
 import pathlib
@@ -142,14 +149,40 @@ def run(cmd, cwd=None, **kw):
     return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, **kw)
 
 
-def build(work, dest, arm):
-    """Materialise one run directory. Identical in both arms but for STRIP."""
+def apply_migration(dest, cache):
+    """Swap each article for its migrated form, keyed on the original's sha1.
+
+    Strict: a tree with any unmigrated article is refused rather than run.
+    A half-migrated KB is a third thing that is neither arm, and it would be
+    invisible in the results - the run would simply look like a weak effect.
+    """
+    kb = dest / "docs/kb"
+    missing = []
+    for art in sorted(kb.glob("*.md")):
+        if art.name in ("INDEX.md", "DIGEST.md"):
+            continue
+        key = hashlib.sha1(art.read_bytes()).hexdigest()
+        src = cache / f"{key}.md"
+        if not src.exists():
+            missing.append(art.name)
+            continue
+        art.write_text(src.read_text())
+    if missing:
+        raise SystemExit(f"{dest}: no migration for {len(missing)} article(s): "
+                         f"{missing[:3]} - run bench/migrate.py first")
+
+
+def build(work, dest, arm, migrated=None):
+    """Materialise one run directory. Identical across arms but for the KB."""
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(work, dest, symlinks=True)
 
     # The harness's own notes name the gold files. Both arms, always.
     (dest / ".bench-meta.json").unlink(missing_ok=True)
+
+    if arm == "kb-mig":
+        apply_migration(dest, migrated)
 
     if arm == "none":
         for rel in STRIP:
@@ -176,13 +209,13 @@ def build(work, dest, arm):
          "commit", "-q", "-m", "base", "--no-verify"], cwd=dest)
 
 
-def execute(task, arm, seed, root, runs, model, turns, timeout):
+def execute(task, arm, seed, root, runs, model, turns, timeout, migrated=None):
     out = runs / task["instance_id"] / f"{arm}-{seed}"
     done = out / "result.json"
     if done.exists():
         return json.loads(done.read_text())
 
-    build(root / task["instance_id"], out, arm)
+    build(root / task["instance_id"], out, arm, migrated)
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(out)}
     cmd = ["claude", "-p", PROMPT.format(report=task["problem_statement"]),
            "--output-format", "json", "--model", model,
@@ -225,6 +258,10 @@ def main():
     ap.add_argument("--turns", type=int, default=60)
     ap.add_argument("--timeout", type=int, default=900)
     ap.add_argument("--jobs", type=int, default=4)
+    ap.add_argument("--arms", default="none,kb",
+                    help="comma-separated: none, kb, kb-mig")
+    ap.add_argument("--migrated", default="bench/migrated",
+                    help="cache written by migrate.py, for the kb-mig arm")
     a = ap.parse_args()
 
     tasks = json.loads(pathlib.Path(a.tasks).read_text())
@@ -232,19 +269,21 @@ def main():
     tasks = [t for t in tasks if (root / t["instance_id"]).exists()][: a.limit]
     runs.mkdir(parents=True, exist_ok=True)
 
-    jobs = [(t, arm, s) for t in tasks for arm in ("none", "kb")
-            for s in range(a.seeds)]
-    print(f"{len(jobs)} run(s): {len(tasks)} task(s) x 2 arms x {a.seeds} seed(s)"
-          f", model={a.model}\n", flush=True)
+    arms = [x.strip() for x in a.arms.split(",") if x.strip()]
+    mig = pathlib.Path(a.migrated)
+    jobs = [(t, arm, s) for t in tasks for arm in arms for s in range(a.seeds)]
+    print(f"{len(jobs)} run(s): {len(tasks)} task(s) x {len(arms)} arm(s) "
+          f"({', '.join(arms)}) x {a.seeds} seed(s), model={a.model}\n",
+          flush=True)
 
     with cf.ThreadPoolExecutor(max_workers=a.jobs) as ex:
         futs = [ex.submit(execute, t, arm, s, root, runs, a.model, a.turns,
-                          a.timeout) for t, arm, s in jobs]
+                          a.timeout, mig) for t, arm, s in jobs]
         recs = [f.result() for f in futs]
 
     empty = [r for r in recs if not r["touched"]]
     print(f"\n{len(recs)} run(s) complete; {len(empty)} produced no edit")
-    for arm in ("none", "kb"):
+    for arm in arms:
         rs = [r for r in recs if r["arm"] == arm and r["touched"]]
         if rs:
             print(f"  {arm:<5} {len(rs):>2} with edits, "

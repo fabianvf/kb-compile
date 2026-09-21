@@ -293,6 +293,7 @@ def main():
     runs, cache = pathlib.Path(a.runs), pathlib.Path(a.cache)
 
     graded = [d for d in sorted(runs.glob("*/*")) if (d / "patch.diff").exists()]
+    arms = sorted({d.name.rsplit("-", 1)[0] for d in graded})
     ids = sorted({d.parent.name for d in graded})
     print(f"{len(ids)} task(s), {len(graded)} run(s) to grade, judge={a.model}\n",
           flush=True)
@@ -340,12 +341,12 @@ def main():
     by = {}
     for r in rows:
         by.setdefault(r["arm"], []).append(r["score"])
-    for arm in ("none", "kb"):
+    for arm in arms:
         v = by.get(arm, [])
         if v:
             print(f"  {arm:<6} {len(v):<3} {sum(v)/len(v):.3f}")
 
-    for arm in ("none", "kb"):
+    for arm in arms:
         rs = [r for r in rows if r["arm"] == arm]
         if not rs:
             continue
@@ -355,7 +356,7 @@ def main():
         print(f"  {arm:<6} {to} timeout, {empty} chose no edit, ${cost:.2f}")
 
     print("\n  arm    fixed it   damaged nothing")
-    for arm in ("none", "kb"):
+    for arm in arms:
         rs = [r for r in rows if r["arm"] == arm]
         pos = [r["pos"] for r in rs if r["pos"] is not None]
         neg = [r["neg"] for r in rs if r["neg"] is not None]
@@ -365,25 +366,42 @@ def main():
 
     # Paired, which is the only comparison that means anything: the arms must
     # be compared on the SAME tasks or the difference is between task sets.
+    # Paired against the control, which is the only comparison that means
+    # anything: the arms must be compared on the SAME tasks or the difference
+    # is between task sets. A sign test because the mean of a couple of dozen
+    # noisy paired differences invites more confidence than it earns.
+    from math import comb
     pairs = {}
     for r in rows:
-        pairs.setdefault((r["instance_id"], r["seed"]), {})[r["arm"]] = r["score"]
-    both = [p for p in pairs.values() if "none" in p and "kb" in p]
-    if both:
-        d = [p["kb"] - p["none"] for p in both]
-        wins = sum(1 for x in d if x > 0.001)
-        ties = sum(1 for x in d if abs(x) <= 0.001)
-        print(f"\n  paired on {len(both)}: kb - none = {sum(d)/len(d):+.3f}")
-        print(f"    kb better {wins}, tie {ties}, none better {len(d)-wins-ties}")
-        # A sign test, because the mean of 13 noisy paired differences invites
-        # more confidence than it earns. Two-sided, ties excluded, exact.
-        n = wins + (len(d) - wins - ties)
-        if n:
-            from math import comb
-            k = max(wins, n - wins)
-            pv = min(1.0, 2 * sum(comb(n, i) for i in range(k, n + 1)) / 2 ** n)
-            print(f"    sign test on {n} non-tied pair(s): p = {pv:.3f}"
-                  + ("" if pv < 0.05 else "  — not distinguishable from noise"))
+        pairs.setdefault((r["instance_id"], r["seed"]), {})[r["arm"]] = r
+
+    def signtest(field, a, b):
+        d = [p[a][field] - p[b][field] for p in pairs.values()
+             if a in p and b in p
+             and p[a][field] is not None and p[b][field] is not None]
+        if not d:
+            return None
+        w = sum(1 for x in d if x > 1e-9)
+        l = sum(1 for x in d if x < -1e-9)
+        n = w + l
+        pv = (min(1.0, 2 * sum(comb(n, i) for i in range(max(w, l), n + 1))
+                  / 2 ** n) if n else 1.0)
+        return len(d), sum(d) / len(d), w, l, len(d) - n, pv
+
+    for arm in arms:
+        if arm == "none":
+            continue
+        print(f"\n  {arm} vs none, paired:")
+        for field, label in (("score", "overall"), ("pos", "fixed it"),
+                             ("neg", "damaged nothing")):
+            r = signtest(field, arm, "none")
+            if not r:
+                continue
+            n, mean, w, l, t, pv = r
+            note = "" if pv < 0.05 else "   not distinguishable from noise"
+            print(f"    {label:<16} {mean:+.3f}  on {n} pair(s); "
+                  f"better {w}, worse {l}, tie {t};  p={pv:.3f}{note}")
+
     return 0
 
 
