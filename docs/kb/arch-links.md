@@ -155,6 +155,18 @@ disabling the hook, taking every other check with it. A timed-out command is
 reported as timed out rather than as `signal: killed`, which would send the
 reader to debug the script instead of the limit.
 
+**The deadline is `WaitDelay`, not the context.** `CommandContext` kills the
+direct child and `Output()` then waits for the stdout pipe to reach EOF, which
+a grandchild that inherited it holds open. So a command whose shell forks ran
+to completion whatever the deadline said: measured at 5.02s under a 150ms
+deadline for `sleep 5 & wait`, against 150ms for `sleep 5`, where the shell
+execs and the kill lands on sleep itself.
+
+Which means it worked on macOS and did nothing on Linux, because `/bin/sh` is
+bash there and dash here and bash execs a single command where dash forks. The
+platform it worked on is not the platform the commit hook runs on, and the test
+that caught it had passed for a month on the other one.
+
 **The resolvers ship INSIDE the binary, not in the adopting repo.** They
 were scripts to copy into `contrib/`, which put this tool's code in somebody
 else's repository and decoupled the resolver from the checker consuming its

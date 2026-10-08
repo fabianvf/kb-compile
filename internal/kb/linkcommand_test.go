@@ -185,9 +185,13 @@ func TestLinkCommandTimesOut(t *testing.T) {
 	linkCommandTimeout = 150 * time.Millisecond
 	t.Cleanup(func() { linkCommandTimeout = prev })
 
+	// Built here, not in the goroutine. The budget below is meant to measure
+	// the deadline, and fixture setup is a temp dir plus a git init; folding
+	// that in made a slow runner look like an unbounded command. Calling
+	// t.Fatal from the helper off the test goroutine was wrong anyway.
+	c := cmdChecker(t, []string{"app/engine.go"}, `sleep 30`, false)
 	done := make(chan []string, 1)
 	go func() {
-		c := cmdChecker(t, []string{"app/engine.go"}, `sleep 30`, false)
 		c.RunLinkCommands()
 		done <- c.Errors
 	}()
@@ -226,5 +230,45 @@ func TestLinkCommandResolvesBareKbToSelf(t *testing.T) {
 		if got := resolveSelf(spelled); got != spelled {
 			t.Errorf("resolveSelf(%q) = %q, want it left alone", spelled, got)
 		}
+	}
+}
+
+// TestLinkCommandTimesOutWhenItForks is the half of the deadline that was not
+// bounded at all.
+//
+// CommandContext kills the direct child; Output() then waits for the stdout
+// pipe to reach EOF, and a grandchild that inherited it holds it open. So a
+// link command whose shell forks ran to completion however short the deadline.
+// Measured before the fix: a 150ms deadline over `sleep 5 & wait` returned
+// after 5.02s.
+//
+// It passed on macOS and failed on Linux for one reason: /bin/sh is bash
+// there and dash here, and bash execs a single command where dash forks. The
+// platform it worked on is not the one the commit hook runs on.
+func TestLinkCommandTimesOutWhenItForks(t *testing.T) {
+	prevT, prevW := linkCommandTimeout, linkCommandWaitDelay
+	linkCommandTimeout = 150 * time.Millisecond
+	linkCommandWaitDelay = 300 * time.Millisecond
+	t.Cleanup(func() { linkCommandTimeout, linkCommandWaitDelay = prevT, prevW })
+
+	// `& wait` forces the fork on every shell, so this does not depend on
+	// which /bin/sh the runner has.
+	c := cmdChecker(t, []string{"app/engine.go"}, `sleep 30 & wait`, false)
+
+	done := make(chan []string, 1)
+	go func() {
+		c.RunLinkCommands()
+		done <- c.Errors
+	}()
+
+	select {
+	case errs := <-done:
+		if !anyContains(errs, "timed out") {
+			t.Errorf("bounded, but the error does not name the deadline: %v", errs)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a forking link command outlived the deadline; the pipe its " +
+			"grandchild holds open is what Wait blocks on, so the gate waits " +
+			"for the hang it was supposed to bound")
 	}
 }

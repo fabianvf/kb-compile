@@ -16,7 +16,7 @@
   "internal/kb/digest.go": "0a43998281d11f7f030b20d1f31cda7922be4a3cec11d43381b47f6e0d8efb63",
   "internal/kb/eval.go": "1055f875c5cf3fe56ee1a4af827bfa66dc275fbcc6a994bcba7dd1bc80f25722",
   "internal/kb/fresh.go": "8ed0042268c00a832f8ff382d7a587f7772059f78608c98a27cacd4cf6ae3018",
-  "internal/kb/links.go": "9bb14264ea7790b8219ec45115f4b675ecba9ab4e6f77c494200cc1ed40a1794",
+  "internal/kb/links.go": "502377389f89d51df2165adbef0b373a8a0604e90551cd8f9b3610ae001abd3c",
   "internal/kb/owners.go": "96f8086dea011390d2538d6bbf8c2faca7e6cb17fc5108dbeaafd2629c76f0f5",
   "internal/kb/ratchet.go": "73e831d284ee9b1b5819d1dae0ca3b247a698ea9a31975c5275838d1f26c2d7c",
   "internal/kb/read.go": "7a4989ccde52edfd797bfb0c169f8158b7bb0f2125d5e8be03010aabf5e68c93",

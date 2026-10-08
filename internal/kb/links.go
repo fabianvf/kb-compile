@@ -27,6 +27,13 @@ import (
 // waiting for the real one is a test nobody runs.
 var linkCommandTimeout = 60 * time.Second
 
+// linkCommandWaitDelay bounds how long Wait will block on pipes a grandchild
+// is still holding after the deadline killed the command itself. Short: the
+// direct child is already gone by SIGKILL, so this only covers processes that
+// outlived it, and a gate that takes a further minute to give up has not
+// really been bounded.
+var linkCommandWaitDelay = 2 * time.Second
+
 // BuildOwnership maps source path -> the article ids claiming it.
 //
 // Two sources, both ownership: an explicit `## FILES` entry and a `covers:`
@@ -431,6 +438,19 @@ func (c *Checker) RunLinkCommands() map[string][]string {
 	for _, lc := range c.Cfg.LinkCommands {
 		ctx, cancel := context.WithTimeout(context.Background(), linkCommandTimeout)
 		cmd := exec.CommandContext(ctx, resolveSelf(lc.Command[0]), lc.Command[1:]...)
+		// WaitDelay is what actually bounds this. CommandContext kills the
+		// direct child only, and Output() waits for the stdout pipe to reach
+		// EOF - which a surviving grandchild holds open. So a command that
+		// forks ran to completion regardless of the deadline: `sh -c 'sleep 5
+		// & wait'` under a 150ms deadline returned after 5.02s, while `sh -c
+		// 'sleep 5'` returned at 150ms because the shell execs and the kill
+		// lands on sleep itself.
+		//
+		// That is the difference between /bin/sh being bash and being dash,
+		// so the deadline worked on macOS and did nothing on Linux, where the
+		// commit hook it protects actually runs. WaitDelay closes the pipes
+		// and returns once it elapses, whatever is still holding them.
+		cmd.WaitDelay = linkCommandWaitDelay
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()
