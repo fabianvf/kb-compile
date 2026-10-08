@@ -233,22 +233,59 @@ def verify(original, migrated, stem, atype):
     return None
 
 
-def migrate_one(text, model, cache, stem, atype, tries=2):
-    key = hashlib.sha1(text.encode()).hexdigest()
+def migrate_one(key, text, model, cache, stem, atype, tries=2):
+    """Migrate one article, caching under `key`.
+
+    The key is PASSED IN rather than recomputed. It used to be
+    `sha1(text.encode())` here while both readers - the shrink report below and
+    `apply_migration` in agent.py - looked the file up under
+    `sha1(art.read_bytes())`. Those agree only for LF-only UTF-8 articles:
+    `read_text()` translates universal newlines and decodes with the locale
+    encoding, so one CRLF article is written under a name nothing reads. The
+    run then reports "migrated N, failed 0", drops the article from the size
+    stats, and every kb-mig cell raises MigrationMissing pointing at --root,
+    which is not the cause. One derivation, used by all three sites.
+    """
     dst = cache / f"{key}.md"
     if dst.exists():
         return dst.read_text(), None
+    # Every exit from this loop has to be a value, never an exception. These
+    # run under ex.map over ~160 articles, so anything that escapes kills the
+    # whole migration and the articles after it are never attempted - the same
+    # failure the previous commit fixed in judge.py. `last` starts bound for
+    # the same reason: the JSONDecodeError path skips the assignment at the
+    # bottom, so two bad replies used to raise UnboundLocalError here.
+    last = "no usable reply"
     for _ in range(tries):
-        r = subprocess.run(
-            ["claude", "-p",
-             PROMPT.format(body=text[:400000], stem=stem, atype=atype),
-             "--output-format", "json", "--model", model,
-             "--disallowed-tools", "WebSearch", "WebFetch", "Bash", "Edit",
-             "Write", "Read"],
-            capture_output=True, text=True, timeout=1200)
         try:
-            out = json.loads(r.stdout).get("result", "")
+            r = subprocess.run(
+                ["claude", "-p",
+                 PROMPT.format(body=text[:400000], stem=stem, atype=atype),
+                 "--output-format", "json", "--model", model,
+                 "--disallowed-tools", "WebSearch", "WebFetch", "Bash", "Edit",
+                 "Write", "Read"],
+                capture_output=True, text=True, timeout=1200)
+        except subprocess.TimeoutExpired:
+            last = "timed out after 1200s"
+            continue
+        try:
+            reply = json.loads(r.stdout)
         except json.JSONDecodeError:
+            last = f"reply was not JSON (exit {r.returncode})"
+            continue
+        # A scalar or list reply has no .get, and AttributeError escaping here
+        # aborts the run exactly like the decode error used to.
+        if not isinstance(reply, dict):
+            last = f"reply JSON was {type(reply).__name__}, not an object"
+            continue
+        # `.get("result", "")` only defaults when the KEY is absent, so a
+        # `{"result": null}` reply returned None and `None.strip()` raised
+        # AttributeError - out of the worker, through ex.map, killing the run.
+        # That is the failure the isinstance check above exists to prevent,
+        # one line below its own guard.
+        out = reply.get("result")
+        if not isinstance(out, str):
+            last = f"reply result was {type(out).__name__}, not a string"
             continue
         out = out.strip()
         if out.startswith("```"):
@@ -264,7 +301,12 @@ def migrate_one(text, model, cache, stem, atype, tries=2):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--root", default="bench/work-vv2")
+    # Must match agent.py's --root default. They disagreed (work-vv2 here,
+    # work-vv there), so the documented sequence with bare flags migrated one
+    # corpus and benchmarked another and every kb-mig cell was refused - after
+    # its none and kb siblings had already been paid for. agent.py, judge.py
+    # and bench/README.md all name work-vv, so this is the one that moved.
+    ap.add_argument("--root", default="bench/work-vv")
     ap.add_argument("--cache", default="bench/migrated")
     ap.add_argument("--model", default="sonnet")
     ap.add_argument("--jobs", type=int, default=6)
@@ -284,35 +326,41 @@ def main():
                 continue
             stem = art.stem
             atype = stem.split("-")[0] if "-" in stem else "arch"
-            texts.setdefault(hashlib.sha1(art.read_bytes()).hexdigest(),
-                             (art.read_text(), stem, atype))
+            # One read per file. `setdefault(k, art.read_text())` evaluated the
+            # default eagerly, so every repeat of an already-seen article paid
+            # a full read whose result was discarded - 399 instances over 169
+            # distinct texts is 230 wasted reads.
+            raw = art.read_bytes()
+            key = hashlib.sha1(raw).hexdigest()
+            if key not in texts:
+                texts[key] = (raw.decode(), stem, atype)
     print(f"{len(texts)} unique article(s) to migrate, model={a.model}\n",
           flush=True)
 
-    done = failed = 0
+    done = 0
     fails = []
+    shrink = []
 
     def work(item):
         key, (text, stem, atype) = item
-        out, why = migrate_one(text, a.model, cache, stem, atype)
+        out, why = migrate_one(key, text, a.model, cache, stem, atype)
         return key, text, out, why
 
     with cf.ThreadPoolExecutor(max_workers=a.jobs) as ex:
         for key, text, out, why in ex.map(work, texts.items()):
             if out is None:
-                failed += 1
                 fails.append((key, why))
                 print(f"  FAILED {key[:8]}: {why}", flush=True)
             else:
                 done += 1
+                # Measured from the string already in hand. Re-reading the
+                # cache directory afterwards also counted files left over from
+                # a previous --root that this run never touched.
+                shrink.append(len(out) / max(1, len(text)))
                 if done % 20 == 0:
                     print(f"  {done}/{len(texts)}", flush=True)
 
-    shrink = []
-    for key, (text, _stem, _atype) in texts.items():
-        p = cache / f"{key}.md"
-        if p.exists():
-            shrink.append(len(p.read_text()) / max(1, len(text)))
+    failed = len(fails)
     print(f"\nmigrated {done}, failed {failed}")
     if shrink:
         shrink.sort()

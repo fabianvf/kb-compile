@@ -53,6 +53,10 @@ import shutil
 import subprocess
 import sys
 
+# The arms `build()` knows how to materialise. Anything outside this set would
+# fall through its two branches untouched and be a relabelled `kb`.
+ARMS = {"none", "kb", "kb-mig"}
+
 # Everything that makes a checkout KB-aware. Removed together for the `none`
 # arm so the only difference between arms is the knowledge base itself.
 STRIP = [
@@ -149,27 +153,72 @@ def run(cmd, cwd=None, **kw):
     return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, **kw)
 
 
+class CellRefused(Exception):
+    """One cell cannot be built, and only that cell is lost.
+
+    A plain exception rather than SystemExit because this is raised inside a
+    ThreadPoolExecutor worker: `f.result()` re-raises it in the main thread,
+    and SystemExit there aborted every other task's arms too, after their
+    results had already been computed and written but before the summary
+    printed.
+
+    The `none` arm's two strip assertions are the same shape and used to raise
+    SystemExit from the same worker threads, so the fix covered one branch and
+    left the one beside it - a CLAUDE.md whose KB heading `strip_claude_md`
+    does not recognise still took the whole run down.
+    """
+
+
+class MigrationMissing(CellRefused):
+    """The kb-mig arm has no migrated article for this tree."""
+
+
+class StripFailed(CellRefused):
+    """The none arm's KB removal did not remove the KB."""
+
+
 def apply_migration(dest, cache):
     """Swap each article for its migrated form, keyed on the original's sha1.
 
     Strict: a tree with any unmigrated article is refused rather than run.
     A half-migrated KB is a third thing that is neither arm, and it would be
     invisible in the results - the run would simply look like a weak effect.
+
+    Resolved in full before anything is written. The earlier version wrote as
+    it went and raised on the first gap, which left `dest` holding a mix of
+    migrated and original articles - the half-migrated third thing this
+    refuses to run, created by the refusal itself.
     """
     kb = dest / "docs/kb"
-    missing = []
+    # `Path.glob` on a missing directory yields nothing rather than raising, so
+    # a tree with no KB gave pending == missing == [] and sailed past the
+    # strict refusal below as an unmodified full-KB tree labelled kb-mig - the
+    # "third thing that is neither arm" this function exists to refuse, in the
+    # one shape its own loop cannot see.
+    if not kb.is_dir():
+        raise MigrationMissing(f"{dest}: no docs/kb, so there is nothing to "
+                               "migrate and this is not the kb-mig arm")
+    pending, missing = [], []
     for art in sorted(kb.glob("*.md")):
         if art.name in ("INDEX.md", "DIGEST.md"):
             continue
         key = hashlib.sha1(art.read_bytes()).hexdigest()
         src = cache / f"{key}.md"
-        if not src.exists():
+        if src.exists():
+            pending.append((art, src))
+        else:
             missing.append(art.name)
-            continue
-        art.write_text(src.read_text())
     if missing:
-        raise SystemExit(f"{dest}: no migration for {len(missing)} article(s): "
-                         f"{missing[:3]} - run bench/migrate.py first")
+        # Not "run migrate.py first": the usual cause is that it WAS run,
+        # against a different --root, and "run it first" sends someone to
+        # repeat the step they just completed. The two defaults now agree, so
+        # this fires for an explicitly mismatched --root rather than for the
+        # documented sequence typed with bare flags.
+        raise MigrationMissing(
+            f"{dest}: {len(missing)} article(s) absent from {cache}: "
+            f"{missing[:3]} - migrate this tree's --root, not another's")
+    for art, src in pending:
+        art.write_text(src.read_text())
 
 
 def build(work, dest, arm, migrated=None):
@@ -192,14 +241,14 @@ def build(work, dest, arm, migrated=None):
         if cm.exists():
             stripped = strip_claude_md(cm.read_text())
             if "docs/kb" in stripped:
-                # Fail loudly. A silent no-op here leaves the `none` arm being
-                # told to read articles that are not there.
-                raise SystemExit(f"{dest}: docs/kb survived CLAUDE.md strip")
+                # Fail loudly, but only this cell. A silent no-op here leaves
+                # the `none` arm being told to read articles that are not there.
+                raise StripFailed(f"{dest}: docs/kb survived CLAUDE.md strip")
             cm.write_text(stripped)
         leftover = [str(p.relative_to(dest)) for p in dest.rglob("*")
                     if "docs/kb" in str(p.relative_to(dest))]
         if leftover:
-            raise SystemExit(f"{dest}: KB survived stripping: {leftover[:3]}")
+            raise StripFailed(f"{dest}: KB survived stripping: {leftover[:3]}")
 
     # A fresh single-commit repo: gives a diff to grade, with no history to
     # leak, since the only commit is the pre-fix tree we just laid down.
@@ -269,7 +318,17 @@ def main():
     tasks = [t for t in tasks if (root / t["instance_id"]).exists()][: a.limit]
     runs.mkdir(parents=True, exist_ok=True)
 
+    # Validated, because `build()` branches on "none" and "kb-mig" with no
+    # else: an unrecognised name silently produces an unmodified full-KB tree,
+    # i.e. a second copy of the `kb` arm wearing a different label. judge.py
+    # takes the label off the directory name and prints it a mean and a
+    # p-value, so a typo buys a full paid run reported as a third condition
+    # that is really `kb` measured twice. Nothing downstream can tell.
     arms = [x.strip() for x in a.arms.split(",") if x.strip()]
+    unknown = [x for x in arms if x not in ARMS]
+    if unknown:
+        raise SystemExit(f"unknown arm(s) {unknown}; choose from "
+                         f"{sorted(ARMS)}")
     mig = pathlib.Path(a.migrated)
     jobs = [(t, arm, s) for t in tasks for arm in arms for s in range(a.seeds)]
     print(f"{len(jobs)} run(s): {len(tasks)} task(s) x {len(arms)} arm(s) "
@@ -277,19 +336,52 @@ def main():
           flush=True)
 
     with cf.ThreadPoolExecutor(max_workers=a.jobs) as ex:
-        futs = [ex.submit(execute, t, arm, s, root, runs, a.model, a.turns,
-                          a.timeout, mig) for t, arm, s in jobs]
-        recs = [f.result() for f in futs]
+        futs = [(ex.submit(execute, t, arm, s, root, runs, a.model, a.turns,
+                           a.timeout, mig), t, arm, s) for t, arm, s in jobs]
+        # Per cell. One tree with no migration used to take down every other
+        # task's arms, after their results were computed and written to disk
+        # but before the summary that interprets them printed - so the run
+        # cost full price and reported nothing.
+        #
+        # Every exception is caught, not just the refusals this was written
+        # for. `execute` can also raise JSONDecodeError on a result.json left
+        # truncated by an interrupted pass - which is hit by the resume path,
+        # the entire point of the `done.exists()` cache - and OSError if
+        # `claude` is not on PATH. Each of those did exactly the damage
+        # described above, through a door left open beside the one just shut.
+        recs, refused = [], []
+        for f, t, arm, s in futs:
+            try:
+                recs.append(f.result())
+            except CellRefused as e:
+                refused.append(f"{t['instance_id']} {arm} s{s}: {e}")
+            except Exception as e:  # noqa: BLE001 - one cell, never the run
+                refused.append(
+                    f"{t['instance_id']} {arm} s{s}: "
+                    f"{type(e).__name__}: {e}")
 
     empty = [r for r in recs if not r["touched"]]
     print(f"\n{len(recs)} run(s) complete; {len(empty)} produced no edit")
+    if refused:
+        # Loudly, and never folded into the arm medians below. A refused cell
+        # is a missing measurement, and counting it as anything would make the
+        # arm look weak rather than unmeasured.
+        print(f"{len(refused)} run(s) REFUSED and are absent from the "
+              f"comparison:")
+        for r in refused:
+            print(f"  {r}")
     for arm in arms:
         rs = [r for r in recs if r["arm"] == arm and r["touched"]]
         if rs:
             print(f"  {arm:<5} {len(rs):>2} with edits, "
                   f"median {sorted(len(r['touched']) for r in rs)[len(rs)//2]} "
                   f"file(s), ${sum(r['cost_usd'] or 0 for r in rs):.2f}")
-    return 0
+    # Non-zero when any cell is missing, like migrate.py. `agent.py && judge.py`
+    # is the shape run.sh already uses, and returning 0 after a whole arm was
+    # refused let grading proceed on a corpus the judge then reported as a
+    # clean two-arm result - the refusal notice having scrolled past an hour
+    # earlier behind the per-run progress output.
+    return 1 if refused else 0
 
 
 if __name__ == "__main__":

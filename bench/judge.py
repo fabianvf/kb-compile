@@ -181,8 +181,17 @@ def ask(prompt, model, timeout=600, tries=3):
         except subprocess.TimeoutExpired:
             continue
         try:
-            text = json.loads(r.stdout).get("result", "")
+            reply = json.loads(r.stdout)
         except json.JSONDecodeError:
+            continue
+        # A scalar or list reply has no .get, and a null result has no
+        # .strip() downstream. Either AttributeError escapes this worker and
+        # aborts the whole grading pass, which is the failure the retry loop
+        # was added to prevent.
+        if not isinstance(reply, dict):
+            continue
+        text = reply.get("result")
+        if not isinstance(text, str):
             continue
         out = extract_json(text)
         if out:
@@ -365,11 +374,9 @@ def main():
                   f"{sum(neg)/len(neg):.3f}" if neg else "")
 
     # Paired, which is the only comparison that means anything: the arms must
-    # be compared on the SAME tasks or the difference is between task sets.
-    # Paired against the control, which is the only comparison that means
-    # anything: the arms must be compared on the SAME tasks or the difference
-    # is between task sets. A sign test because the mean of a couple of dozen
-    # noisy paired differences invites more confidence than it earns.
+    # be compared on the SAME tasks or the difference is between task sets. A
+    # sign test because the mean of a couple of dozen noisy paired differences
+    # invites more confidence than it earns.
     from math import comb
     pairs = {}
     for r in rows:
@@ -388,19 +395,32 @@ def main():
                   / 2 ** n) if n else 1.0)
         return len(d), sum(d) / len(d), w, l, len(d) - n, pv
 
-    for arm in arms:
-        if arm == "none":
-            continue
-        print(f"\n  {arm} vs none, paired:")
+    # Every arm against the control, and then kb-mig against kb. The second is
+    # the comparison kb-mig exists to make - it asks whether the FORM of the
+    # claims matters, which is a kb-mig-vs-kb question and not a vs-none one.
+    # Printing only vs-none left the operator to eyeball a difference of
+    # differences between two independent sign tests.
+    comparisons = [(arm, "none") for arm in arms if arm != "none"]
+    if "kb-mig" in arms and "kb" in arms:
+        comparisons.append(("kb-mig", "kb"))
+
+    for arm, base in comparisons:
+        rows_out = []
         for field, label in (("score", "overall"), ("pos", "fixed it"),
                              ("neg", "damaged nothing")):
-            r = signtest(field, arm, "none")
+            r = signtest(field, arm, base)
             if not r:
                 continue
             n, mean, w, l, t, pv = r
             note = "" if pv < 0.05 else "   not distinguishable from noise"
-            print(f"    {label:<16} {mean:+.3f}  on {n} pair(s); "
-                  f"better {w}, worse {l}, tie {t};  p={pv:.3f}{note}")
+            rows_out.append(f"    {label:<16} {mean:+.3f}  on {n} pair(s); "
+                            f"better {w}, worse {l}, tie {t};  p={pv:.3f}{note}")
+        # Only with something under it. The header used to print for an arm
+        # with no overlapping pairs - `--arms kb,kb-mig` produced a bare
+        # "kb-mig vs none, paired:" over nothing at all.
+        if rows_out:
+            print(f"\n  {arm} vs {base}, paired:")
+            print("\n".join(rows_out))
 
     return 0
 

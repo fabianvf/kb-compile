@@ -34,6 +34,28 @@ Deleting those sections would have made `none` the arm with less guidance
 rather than the arm with no KB, so the strip is sentence-level and asserts
 afterwards that no `docs/kb` survived.
 
+**A third arm, `kb-mig`, asks whether the FORM of the claims matters.** It is
+the same articles rewritten into the SPEC.md section vocabulary, so the same
+files stay owned and only the shape of what is said changes. Run `migrate.py`
+first, against the same `--root`, and add the arm:
+
+```sh
+python3 bench/migrate.py --root bench/work-vv
+python3 bench/agent.py --tasks bench/tasks-vv.json --root bench/work-vv \
+  --limit 8 --arms none,kb,kb-mig
+```
+
+Each tree gets ITS OWN articles migrated, at the commit they existed, never
+today's: the tasks span five months and today's KB describes fixes that had
+not been made yet. Migration output is cached by article sha1 in
+`bench/migrated/`, which is generated and gitignored. A tree with any
+unmigrated article refuses that cell rather than running a half-migrated KB,
+which would be a third thing that is neither arm.
+
+`judge.py` picks the arms up from the run directory names, and prints each one
+against `none` plus `kb-mig` against `kb` - the last being the comparison the
+arm exists to make.
+
 **The judge follows [SWE Atlas](https://arxiv.org/abs/2605.08366)**, which
 grades coding agents past issue resolution with rubric-based LLM-as-a-judge.
 Adopted because they validated it: atomic self-contained binary items graded
@@ -164,3 +186,7 @@ Not built. The design, so it is not re-derived:
 | `fetch.py` | SWE-bench Verified → `{problem_statement, gold_files, base_commit}`. Caps per repo, because a KB costs one generation per repo and breadth is what the sample needs. |
 | `prepare.py` | Materialise + isolate + prove the isolation. |
 | `route.py` | Tier 1 scorer. Paired comparison only — the arms run on different task counts whenever some repos carry a KB, and an unpaired mean compares the task sets rather than the arms. |
+| `local.py` | Task extraction from a local repository's own history, for repos that are not in SWE-bench. |
+| `agent.py` | Tier 2 runner. Materialises one tree per (task, arm, seed), runs the agent in it, records the patch. |
+| `migrate.py` | Rewrites each tree's articles into the SPEC.md vocabulary, for the `kb-mig` arm. Caches by article sha1; refuses any rewrite that changed an article's identity or its `## FILES` ownership. |
+| `judge.py` | Tier 2 scorer. Rubric-based LLM-as-a-judge, paired sign tests between arms. |
