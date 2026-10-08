@@ -78,6 +78,22 @@ if ! command -v kb >/dev/null 2>&1; then
 fi
 
 if OUT=$(kb fresh 2>&1); then
+  # Passing, but `kb fresh` also reports production source git cannot see and
+  # no article claims - the state where a whole new subsystem is about to be
+  # committed outside the KB's view. Discarding that here wasted the one
+  # moment it is most actionable.
+  #
+  # stderr, and never a deny. Plain stdout from a PreToolUse hook is NOT added
+  # to the model's context (see arch-gates), so there is no way to hand this to
+  # the agent from here and pretending otherwise would be worse than silence.
+  # The human running the commit is the one who can `git add`, and they see
+  # stderr. Blocking on it is wrong: nothing is stale, and a gate that stops a
+  # correct commit over an advisory is one people disable.
+  case "$OUT" in
+    *"no article claims"*)
+      printf '%s\n' "$OUT" | sed -n '/^Also:/,$p' >&2
+      ;;
+  esac
   exit 0
 fi
 

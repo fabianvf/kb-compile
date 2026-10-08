@@ -61,6 +61,19 @@ keys, so a whole subsystem's links vanish while the narrow ones look fine.
 
 ## GOTCHA
 
+**A language whose tests live INSIDE the file they test has no edges to
+report, and the fatal-empty rule turns that into a build failure.** Rust is the
+case: the dominant convention is `#[cfg(test)] mod tests` in the same file, so
+there are no two files and no link command can invent one. `rs.sh` therefore
+only reports edges out of a crate's `tests/` directory, and a crate with only
+inline tests produces nothing, which is the honest answer and is
+indistinguishable, to `kb`, from a broken toolchain. The resolution is not to
+soften the rule but to NOT configure the command for that repo; `stem_rules`
+already recovers the `foo.rs` / `tests/foo.rs` pairing without claiming to have
+read an import graph. The script says so in its own header, at length, because
+the person who configures it is not the person who later sees it fail.
+
+
 **A plain stem match needs the same directory or a distinctive stem.**
 Universal filenames recur once per package. Requiring the same language was not
 enough: Go has one `main.go` per command, so every entry point linked to every
@@ -120,6 +133,19 @@ prod root and no `covers:` glob, so the file is silently outside every gate,
 while a link command reporting its real UTF-8 path is told git does not track
 it. The same loop deduplicates, because a conflicted path is listed once per
 merge stage and mid-merge is exactly when someone runs this.
+
+**The inventory is tracked-only, and the one query that is not must never
+change a verdict.** `TrackedFiles` is deliberately not a filesystem walk: a
+build artifact left in a working tree would make a gate answer differently on a
+dev machine than in CI, and an earlier checker learned that the hard way when a
+generated file from a local test run made the check pass locally and fail for
+everyone else. `UntrackedSource` asks the opposite question - `git ls-files
+--others --exclude-standard` - purely so the gates can WARN that their own view
+is narrower than the author's. It feeds no ratchet and no ownership map, so it
+cannot turn a pass into a fail or back. `--exclude-standard` keeps gitignored
+build output out of the answer, which matters more than it sounds: a warning
+that names generated files is one people learn to skip, and this one is worth
+keeping sharp.
 
 **A link command runs under a deadline.** These commands are external
 programs, and `kb graph` is called from a pre-commit hook, so an unbounded one

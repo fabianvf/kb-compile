@@ -329,6 +329,21 @@ with no reading is indistinguishable from a careful pass. The gate buys you
 "somebody was made to look at the right files", not "the article is correct".
 Everything past that point is honesty.
 
+**It is a claim about the repository, never about you.** An entry means "these
+bytes have been reviewed by someone", not "I reviewed them". Where that bites
+is a shared working tree: two agents editing one checkout are flagged for each
+other's changes, and a bare `kb compiled` from either records the other's
+unread work as reviewed. `kb compiled ARTICLE...` narrows the claim to what you
+actually read, and `kb fresh` prints that command pre-filled with every article
+it just listed - deleting the ones you did not open is the intended edit.
+
+**The claim is also bounded by what git tracks.** Ownership is built from `git
+ls-files`, so production source that has been written and not staged is outside
+it: a new subsystem's `covers:` glob matches nothing, and the marker records a
+narrower set than the person running it believes. `kb graph` and `kb compiled`
+warn when untracked files match `prod_roots`, because that narrowing is silent
+and looks exactly like success.
+
 ---
 
 ## 6. Article types

@@ -66,9 +66,19 @@ const claimChars = 150
 
 var (
 	boldClaimRe = regexp.MustCompile(`^\s*(?:[-*]\s+)?\*\*(.+?)\*\*\s*(.*)$`)
-	listItemRe  = regexp.MustCompile(`^\s*[-*]\s+(.*)$`)
-	sentenceRe  = regexp.MustCompile(`^(.*?[.!?])(?:\s|$)`)
-	inlineCode  = regexp.MustCompile("`([^`]*)`")
+	// The opening half of boldClaimRe, shared with it rather than spelled a
+	// second time. openBold used to hand-roll the prefix as two TrimPrefix
+	// calls for the exact strings "- " and "* ", which is narrower than the
+	// `[-*]\s+` the extractor accepts: `-  **Subject` and `-\t**Subject` were
+	// bold claims to one and not to the other, so the wrap detector skipped
+	// them and the claim was truncated at the physical line end - the very
+	// bug joinBold exists to fix, still live for the alignment-padded
+	// spelling. One regexp means a change to what counts as a bold lead
+	// cannot exempt lines from only one of the two.
+	boldOpenRe = regexp.MustCompile(`^\s*(?:[-*]\s+)?\*\*`)
+	listItemRe = regexp.MustCompile(`^\s*[-*]\s+(.*)$`)
+	sentenceRe = regexp.MustCompile(`^(.*?[.!?])(?:\s|$)`)
+	inlineCode = regexp.MustCompile("`([^`]*)`")
 )
 
 // EstimateTokens approximates what an article costs to read.
@@ -147,6 +157,53 @@ func (c *Checker) BuildDigest() []ArticleDigest {
 	return out
 }
 
+// logicalLine folds a hard-wrapped claim back into one line, returning it and
+// the index of the last line consumed.
+//
+// Every claim shape wraps, and the parser reads one physical line at a time,
+// so every shape truncated at the wrap. The bold branch got a targeted fix
+// first; plain bullets and paragraphs kept losing the tail of their first
+// sentence, silently, in the routing table agents read to choose an article.
+// Normalising here instead means the three branches below see whole sentences
+// and none of them has to know about wrapping.
+//
+// Stops at anything that STARTS something else rather than running on: a blank
+// line, a heading of any level, a fence, a table row, or the next list item. A
+// continuation is none of those, and swallowing them turns one malformed
+// article into a claim that eats what follows it.
+//
+// The list-item stop is the one that bites. `- **Subject.** explanation` is
+// this KB's dominant shape, so without it a single unterminated `**` consumed
+// the next bullets into its own claim AND removed them as claims of their own.
+//
+// These prefixes are narrower than the enclosing loop's, deliberately. That
+// loop tests `## ` and an unindented "```" because it is deciding what a line
+// IS; this is deciding whether a line could be the tail of a sentence, and
+// `### Sub` or an indented fence is not, whatever the section parser makes of
+// it.
+func logicalLine(lines []string, i int) (string, int) {
+	var b strings.Builder
+	b.WriteString(strings.TrimRight(lines[i], " "))
+	last := i
+	for j := i + 1; j < len(lines); j++ {
+		t := strings.TrimSpace(lines[j])
+		if t == "" || strings.HasPrefix(t, "#") || strings.HasPrefix(t, "```") ||
+			strings.HasPrefix(t, "|") || listItemRe.MatchString(lines[j]) {
+			break
+		}
+		b.WriteString(" ")
+		b.WriteString(t)
+		last = j
+		// A bold lead ends at its closing `**`; prose and plain bullets run to
+		// the boundary. Stopping early for bold keeps `**A.** B. C.` from
+		// pulling the paragraph after it into the same logical line.
+		if strings.Contains(lines[j], "**") && boldOpenRe.MatchString(lines[i]) {
+			break
+		}
+	}
+	return b.String(), last
+}
+
 // extractClaims pulls the headline sentences out of one section.
 //
 // Three shapes are common and all are handled: `- **Subject.** explanation`
@@ -162,7 +219,8 @@ func extractClaims(body, section string) []string {
 	var claims []string
 	in, paraStart, inFence := false, true, false
 
-	for _, ln := range lines {
+	for i := 0; i < len(lines); i++ {
+		ln := lines[i]
 		// The fence delimiter was skipped but its CONTENTS were not, so a
 		// YAML or code sample inside a section had its lines read as prose
 		// and bullets. Each one became a headline claim and evicted a real
@@ -187,6 +245,13 @@ func extractClaims(body, section string) []string {
 		if strings.HasPrefix(ln, "|") {
 			continue
 		}
+
+		// Past every structural test, so this is the first line of a claim in
+		// one of the three shapes below. Fold its continuations in before any
+		// of them looks at it: each shape wraps, and each used to be cut at
+		// the physical line end. Joining earlier would swallow the fence and
+		// heading lines the tests above exist to catch.
+		ln, i = logicalLine(lines, i)
 
 		if m := boldClaimRe.FindStringSubmatch(ln); m != nil {
 			// firstSentence, like the other two branches. Without it the

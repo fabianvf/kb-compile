@@ -131,3 +131,197 @@ func TestReadArticleSection(t *testing.T) {
 func writeFile(path, body string) error {
 	return os.WriteFile(path, []byte(body), 0o644)
 }
+
+// A bold lead that wraps is still one claim.
+//
+// The single-line case was fixed by taking firstSentence of the joined groups.
+// This is the other half and it failed worse: an unterminated `**` matched
+// neither claim pattern, so the line fell through to the paragraph branch and
+// became a claim cut at the physical line end. Four claims in this repo's own
+// DIGEST were truncated that way, in the routing table agents read to decide
+// what to open, which is the one artifact where a confident half-sentence
+// costs a wrong choice.
+func TestExtractClaimsJoinsAWrappedBoldLead(t *testing.T) {
+	body := "## INVARIANT\n\n" +
+		"**The digest is DERIVED, and that is what makes it trustworthy as a\n" +
+		"routing table.** A hand-maintained summary drifts.\n"
+
+	got := extractClaims(body, "INVARIANT")
+	want := "The digest is DERIVED, and that is what makes it trustworthy as a routing table."
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("extractClaims = %q, want [%q]", got, want)
+	}
+}
+
+// The wrap must not swallow what follows it. A claim that ran past a blank
+// line would eat the rest of the section, turning one malformed article into
+// a digest entry nobody can read.
+func TestExtractClaimsStopsAWrappedLeadAtABoundary(t *testing.T) {
+	// What must not happen is one claim spanning the boundary. Text after it
+	// being picked up as its OWN claim is correct and unrelated.
+	for name, tc := range map[string]struct{ body, beyond string }{
+		// The later paragraph carries its own `**` on purpose. Without it the
+		// join finds no close, falls back to the single line, and the test
+		// passes whether the blank-line boundary is there or not.
+		"blank line": {
+			"## INVARIANT\n\n**Never closed\n\nA separate **paragraph**.\n",
+			"separate",
+		},
+		"next heading": {
+			"## INVARIANT\n\n**Never closed\n## GOTCHA\n\n**Closed here.** trailing\n",
+			"Closed here",
+		},
+		"fence": {
+			"## INVARIANT\n\n**Never closed\n```\n**not a claim**\n```\n",
+			"not a claim",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := extractClaims(tc.body, "INVARIANT")
+			if len(got) == 0 {
+				t.Fatal("the unterminated lead vanished entirely")
+			}
+			if strings.Contains(got[0], tc.beyond) {
+				t.Errorf("the wrapped lead swallowed what follows it: %q", got[0])
+			}
+			if got[0] != "Never closed" {
+				t.Errorf("claim = %q, want %q", got[0], "Never closed")
+			}
+		})
+	}
+}
+
+// A single-line bold lead must keep working exactly as before.
+func TestExtractClaimsStillHandlesTheUnwrappedCase(t *testing.T) {
+	body := "## GOTCHA\n\n**One line.** And the explanation after it.\n"
+	got := extractClaims(body, "GOTCHA")
+	if len(got) != 1 || got[0] != "One line." {
+		t.Errorf("extractClaims = %q, want [\"One line.\"]", got)
+	}
+}
+
+// An unterminated `**` in a bullet list must not eat the bullets under it.
+//
+// `- **Subject.** explanation` is this KB's dominant claim shape, so the join
+// runs inside lists constantly. The boundary set originally stopped at a blank
+// line, a heading and a fence but not at the next list item, which made one
+// malformed bullet consume the following ones into its own claim AND delete
+// them as claims of their own: four bullets came back as two, the first a
+// run-on of the first two and the third gone entirely. That is strictly worse
+// than the truncation the join was added to fix, and it is silent, because the
+// digest is generated and byte-compared against itself.
+func TestExtractClaimsWrapDoesNotSwallowLaterBullets(t *testing.T) {
+	body := "## GOTCHA\n\n" +
+		"- **kwargs is forwarded unchanged\n" +
+		"- The second bullet says something else.\n" +
+		"- Third bullet with a **bold** word.\n" +
+		"- Fourth bullet.\n"
+
+	got := extractClaims(body, "GOTCHA")
+	want := []string{
+		"kwargs is forwarded unchanged",
+		"The second bullet says something else.",
+		"Third bullet with a bold word.",
+		"Fourth bullet.",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("extractClaims = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("claim %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// The extractor already declines to read a `|` row as a claim, so the join
+// must not read one as claim text either.
+func TestExtractClaimsWrapStopsAtATableRow(t *testing.T) {
+	body := "## GOTCHA\n\n**A lead that never closes\n| a | b |\n| c | **d** |\n"
+	got := extractClaims(body, "GOTCHA")
+	if len(got) != 1 || got[0] != "A lead that never closes" {
+		t.Errorf("extractClaims = %q, want [\"A lead that never closes\"]", got)
+	}
+}
+
+// The wrap detector and the claim extractor must agree on what a bold lead
+// looks like. They did not: the extractor accepts `[-*]\s+`, while the
+// detector hand-rolled the exact two-character forms "- " and "* ", so an
+// alignment-padded or tab-indented bullet was a claim to one and not to the
+// other. The line then fell through to the paragraph branch and was cut at
+// the physical line end, which is the bug the join exists to prevent.
+func TestExtractClaimsJoinsWhateverTheExtractorCallsABoldLead(t *testing.T) {
+	for name, body := range map[string]string{
+		"one space":  "## X\n\n- **A claim that wraps\n  onto here.** rest\n",
+		"two spaces": "## X\n\n-  **A claim that wraps\n   onto here.** rest\n",
+		"tab":        "## X\n\n-\t**A claim that wraps\n\tonto here.** rest\n",
+		"star":       "## X\n\n* **A claim that wraps\n  onto here.** rest\n",
+		"indented":   "## X\n\n  **A claim that wraps\n  onto here.** rest\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := extractClaims(body, "X")
+			want := "A claim that wraps onto here."
+			if len(got) != 1 || got[0] != want {
+				t.Errorf("extractClaims = %q, want [%q]", got, want)
+			}
+		})
+	}
+}
+
+// Every claim shape wraps, and for a long time every shape truncated at the
+// wrap. The bold branch was fixed first and in isolation, which left the other
+// two cutting the tail off their first sentence in the routing table - the
+// same silent defect, in the two shapes nobody had looked at.
+func TestExtractClaimsJoinsEveryWrappedShape(t *testing.T) {
+	for name, tc := range map[string]struct{ body, want string }{
+		"bold lead": {
+			"## INVARIANT\n\n**A claim that wraps across\ntwo lines.** Explanation.\n",
+			"A claim that wraps across two lines.",
+		},
+		"plain bullet": {
+			"## INVARIANT\n\n- A plain bullet claim that wraps across\n  two lines here.\n",
+			"A plain bullet claim that wraps across two lines here.",
+		},
+		"paragraph": {
+			"## INVARIANT\n\nA paragraph claim that wraps across\ntwo lines here.\n",
+			"A paragraph claim that wraps across two lines here.",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := extractClaims(tc.body, "INVARIANT")
+			if len(got) != 1 || got[0] != tc.want {
+				t.Errorf("extractClaims = %q, want [%q]", got, tc.want)
+			}
+		})
+	}
+}
+
+// Joining must not run past what starts something else, in every shape. A
+// paragraph that swallowed the next heading would put a section title inside a
+// claim; one that swallowed a fence would put code there.
+func TestExtractClaimsWrapRespectsBoundariesInEveryShape(t *testing.T) {
+	for name, tc := range map[string]struct{ body, beyond string }{
+		"paragraph stops at heading": {
+			"## INVARIANT\n\nA wrapped paragraph\n### Subhead\ntail\n", "Subhead",
+		},
+		"paragraph stops at fence": {
+			"## INVARIANT\n\nA wrapped paragraph\n```\ncode()\n```\n", "code()",
+		},
+		"bullet stops at next bullet": {
+			"## INVARIANT\n\n- First bullet wraps\n- Second bullet.\n", "Second bullet",
+		},
+		"paragraph stops at table": {
+			"## INVARIANT\n\nA wrapped paragraph\n| a | b |\n", "| a |",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := extractClaims(tc.body, "INVARIANT")
+			if len(got) == 0 {
+				t.Fatal("the claim vanished")
+			}
+			if strings.Contains(got[0], tc.beyond) {
+				t.Errorf("claim ran past its boundary: %q", got[0])
+			}
+		})
+	}
+}

@@ -5,6 +5,7 @@ covers:
   - internal/kb/digest.go
   - internal/kb/read.go
   - internal/kb/eval.go
+  - internal/kb/owners.go
 see_also:
   - arch-gates
 ---
@@ -22,6 +23,49 @@ knows. `DIGEST.md` and `kb read` exist to make that arithmetic survivable;
 table.** A hand-maintained summary drifts, and a drifted routing table sends
 agents confidently to the wrong place, which is worse than no summary. It is
 regenerated and byte-compared exactly like the reverse index.
+
+**Every claim shape WRAPS, and the join is not cosmetic.** The parser reads
+one physical line at a time, so a hard-wrapped claim was cut at the wrap in all
+three shapes - the exact dangling fragment the `firstSentence` call beside it
+was added to eliminate, arriving by the other door. Four claims in this repo's
+own DIGEST and one in the test fixture were truncated that way and nothing
+failed, because the artifact is generated and byte-compared against itself:
+both sides agreed on the same wrong text. A gate that regenerates what it
+checks cannot see a wrong generator.
+
+`logicalLine` folds continuations in ONCE, after every structural test and
+before the three claim branches, so no branch has to know about wrapping. The
+first version of this fix was bold-only, which left plain bullets and
+paragraphs still cutting: fixing one shape of a shape-independent bug is how
+the other two stayed invisible for another round.
+
+**The join's boundary set is what keeps the cure from being worse than the
+disease.** `logicalLine` stops at a blank line, a heading of any level, a fence,
+the next list item and a table row. The list-item stop is the one that bites:
+`- **Subject.** explanation` bullets are this KB's dominant claim shape, so a
+version that stopped only at blank lines, `## ` and a fence let one
+unterminated `**` consume the following bullets into its own claim AND delete
+them as claims of their own - four bullets came back as two, one a run-on of
+the first two. Swallowing is strictly worse than truncating, and just as
+silent. The boundaries here are deliberately looser than the enclosing loop's:
+that loop tests `## ` and an unindented fence because it is deciding what a
+line IS, while this one is deciding whether a line could be the tail of a
+sentence, and `### Sub` or an indented code block is not.
+
+**There is no wrap DETECTOR any more, and that is the point.** An earlier
+version decided per line whether a wrap needed joining, which meant a second
+notion of what a bold lead looks like. It was hand-rolled as
+`TrimPrefix(t, "- ")`, narrower than the `[-*]\s+` the extractor accepts, so
+`-  **Subject` and `-\t**Subject` were bold claims to one and not the other:
+the detector skipped them, the line fell to the paragraph branch, and the claim
+truncated anyway - the very bug the join exists to fix, still live for the
+alignment-padded spelling.
+
+`logicalLine` joins unconditionally, so no second notion exists to drift.
+`boldOpenRe` survives inside it for one narrow job, stopping the join at the
+closing `**` so `**A.** B. C.` does not pull the next paragraph in, and it is
+the opening half of `boldClaimRe` rather than a separate spelling of it. Any
+change that reintroduces a should-I-join test reintroduces this whole class.
 
 **An article that yields no standard claims falls back to listing its
 headings.** Otherwise an article using its own section vocabulary appears as a

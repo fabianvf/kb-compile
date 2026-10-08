@@ -60,6 +60,38 @@ states mean different things. A wholly untracked KB is somebody writing their
 first articles and is not yet a contract with anyone; a PARTLY tracked one is
 a broken commit that has already happened or is about to.
 
+**Production source git does not track is outside every gate, and all three
+say so.** Ownership is built from `git ls-files`, so a subsystem written and
+not yet staged has a `covers:` glob matching nothing and a compile marker
+recording a narrower set than its author believes. The narrowing is silent and
+looks exactly like success. `kb graph` names those paths; `kb compiled` names
+them again at the moment the judgement is written, scoped to the articles being
+recorded so a peer session's work in progress is not reported as yours; and
+`kb fresh` reports the subset that no article claims at all.
+
+That last report covers the one cell nothing else reaches.
+`CheckOrphanRatchet` walks the tracked list too, so a file that is both
+untracked and unowned is invisible to the ratchet AND to the ownership map.
+That is not an edge case: an article and the code it covers land in one commit,
+so during the window the code is unstaged, no article claims it. It is the
+normal birth condition of every new subsystem. `Article.Owns` exists for this
+and reads the `covers:` globs and `## FILES` block directly, because the
+ownership map is built by applying them to the tracked list and therefore
+cannot answer for a path git has never seen.
+
+The warning never fails a build. A dirty tree is the normal state mid-work, and
+a gate people route around asserts less than one that nags.
+
+**The commit gate surfaces the OK-path advisory on stderr, and cannot do
+better.** `kb fresh` passing still reports production source git cannot see
+that no article claims, and the hook used to discard it at the one moment it is
+most actionable. It goes to stderr rather than stdout because plain stdout from
+a `PreToolUse` hook is not added to the model's context, so there is no way to
+hand it to the agent from here and formatting it as though there were would be
+worse than silence. The human running the commit is the one who can `git add`,
+and they see stderr. It never denies: nothing is stale, and a gate that blocks
+a correct commit over an advisory is one people switch off.
+
 **Context is pushed on `UserPromptSubmit`, because that is the only event that
 can push it.** Plain stdout from a `PreToolUse` hook is NOT added to the
 model's context, and `additionalContext` is documented only for
@@ -87,6 +119,20 @@ The gate could not separate them, so honesty cost the honest agent everything
 and bought no information. The anti-gaming argument does not call for
 coarseness - it calls for each claim to be specific and attributable, which is
 the opposite of coarse.
+
+Scoping alone leaves the cheap path and the honest path pointing opposite ways,
+so `kb fresh` ends by printing the scoped command pre-filled with every article
+it just listed. Bare `kb compiled` is the shortest thing to type in the tool:
+pasting that line attests to exactly what the gate named, and attesting to less
+means deleting article names from it. Neither is a correctness guarantee. It
+moves the typing cost onto the wrong answer instead of the right one, which is
+the only lever available - the tool cannot tell a read article from an unread
+one and never will.
+
+The claim is also only ever as fine as the widest glob you name. An article
+covering a directory is attested whole, so `kb compiled arch-x` after reading
+two of its five changed files is precisely wrong about a smaller thing rather
+than vaguely wrong about a big one. That is the honest cost of the grain.
 
 **A gate that cannot run must say so, not stand down.** The commit hook
 tests for its config FIRST, and everything after that point is a broken

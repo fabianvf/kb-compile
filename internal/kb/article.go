@@ -337,3 +337,22 @@ func putIfAbsent(m map[string]int, k string, v int) {
 		m[k] = v
 	}
 }
+
+// Owns reports whether this article's stated ownership covers path, without
+// consulting git.
+//
+// The ownership map everywhere else is built from the tracked file list, so it
+// cannot answer this for a file git does not know about — which is precisely
+// the file a warning about untracked source is talking about. This reads the
+// claim rather than the result of applying it.
+func (a *Article) Owns(path string) bool {
+	if _, ok := a.FilesBlock[path]; ok {
+		return true
+	}
+	for _, g := range a.Covers {
+		if GlobMatches(path, g) {
+			return true
+		}
+	}
+	return false
+}

@@ -44,19 +44,33 @@ kb version
 If it is missing, install it and pin the version - a checker that silently
 changes behaviour under a team is its own kind of drift. Prebuilt binaries
 need no Go toolchain, which matters because the repo you are adopting this
-into very often has none:
+into very often has none.
+
+Get the tag first. Do not copy a version out of this file: it would be a
+guess, and pinning to a release that does not exist fails at the install step
+rather than at the gate, which reads as a broken repo rather than a broken pin.
+
+```bash
+gh release list --repo fabianvf/kb-compile --limit 1
+```
+
+Then, with `<tag>` as what that printed:
 
 ```bash
 curl -fsSL -o /usr/local/bin/kb \
-  https://github.com/fabianvf/kb-compile/releases/download/v0.2.0/kb_darwin_arm64
+  https://github.com/fabianvf/kb-compile/releases/download/<tag>/kb_darwin_arm64
 chmod +x /usr/local/bin/kb
+kb version
 ```
 
 Assets are `kb_{linux,darwin,windows}_{amd64,arm64}`, with `checksums.txt`
-beside them. Use a version in the URL rather than `latest/download` and write
-that version into the CI step too, so every machine runs the same checker.
-`go install github.com/fabianvf/kb-compile/cmd/kb@v0.2.0` is equivalent where
-Go is already present.
+beside them. Use a tag in the URL rather than `latest/download` and write the
+same tag into the CI step, so every machine runs the same checker. Check
+`kb version` agrees with the tag you asked for before going further.
+
+`go install github.com/fabianvf/kb-compile/cmd/kb@<tag>` is equivalent where Go
+is already present, and a commit sha works in place of the tag if there is no
+release to pin to yet.
 
 ## 2. Survey the repo
 
@@ -287,9 +301,14 @@ article. Add the two steps to an existing workflow, or claim the new one in a
 seed article.
 
 CI needs the binary, and installing it is one step - not a language toolchain.
-Pin the same version the team runs locally, and use a full clone: both gates
-ask git what the repo contains, and `kb eval` walks history, so a shallow one
-makes them silently wrong rather than failing.
+Pin the same tag the team runs locally, substituting it for `<tag>` below, and
+use a full clone: both gates ask git what the repo contains, and `kb eval`
+walks history, so a shallow one makes them silently wrong rather than failing.
+
+Run the workflow once and confirm the `kb` job actually ran. An install step
+that 404s kills the job before either gate executes, and a workflow whose other
+jobs pass reads as a repo that is merely a bit red rather than one where the KB
+is not being checked at all.
 
 ```yaml
 - uses: actions/checkout@v4
@@ -297,7 +316,7 @@ makes them silently wrong rather than failing.
 - name: install kb
   run: |
     curl -fsSL -o /usr/local/bin/kb \
-      https://github.com/fabianvf/kb-compile/releases/download/v0.2.0/kb_linux_amd64
+      https://github.com/fabianvf/kb-compile/releases/download/<tag>/kb_linux_amd64
     chmod +x /usr/local/bin/kb
 - run: kb graph
 - run: kb fresh
@@ -369,12 +388,23 @@ To find what to read, look the file up rather than grepping:
 
     jq -r '.owners["path/to/file.py"]' docs/kb/.reverse-index.json
 
-Before committing, run `kb fresh`. If it names articles, re-read them against
-the changed files and record the review with `kb compiled`.
+Before committing, run `kb fresh`. If it names articles, re-read every one of
+them against the changed files, then run the exact command `kb fresh` told you
+to run. Never record an article you did not open.
 ```
 
 Duplicating this into a second file guarantees the copies diverge. One source,
 imported.
+
+**Point at what `kb fresh` prints, never at a command shape.** This text
+outlives the binary the repo pins, and the two drift. Older builds end with
+"record it with `kb compiled`" and accept no article names - on those, an
+instruction to paste a scoped line and delete the articles you skipped reads as
+"record only what I read" and records all of it, because the names are
+discarded. Newer builds print the scoped command and honour it. Deferring to
+the output is correct on both, because the line always comes from the same
+binary that will consume it. A version number here would be a third thing to
+keep in sync.
 
 ## 9. Record the first compile
 

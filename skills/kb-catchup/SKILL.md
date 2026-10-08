@@ -339,9 +339,17 @@ kb graph && kb fresh
 manifest. That is correct and it is the moment to be honest: you reviewed them
 while writing the article, so recording it is legitimate.
 
+Run what `kb fresh` just printed. On a current build that is a scoped command
+naming the articles you wrote:
+
 ```bash
-kb compiled
+kb compiled arch-scoring arch-ingest   # whatever kb fresh named
 ```
+
+Take the shape from the output, not from here. Builds before the scoped form
+end with "record it with `kb compiled`" and discard article names, so naming
+one records them all - and if that is your binary, re-read every article
+`kb fresh` listed before recording.
 
 If you claimed files with a glob **without** reading them, say so and go read
 them. Recording a compile you did not do is the one action that breaks the gate
@@ -349,7 +357,8 @@ permanently, silently, and for everyone.
 
 **Do this per article as you finish it, not only here.** Left to the end it
 competes with the urge to sign off, and by then the prose you would compare
-against is no longer open.
+against is no longer open. Naming the article is what makes that possible:
+each one is recorded on its own and the rest stay red.
 
 **Then check you did not make anything worse.** For every article that covers
 ground the repo's existing prose already covered, open the prose one more time

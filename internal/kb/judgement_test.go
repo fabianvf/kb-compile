@@ -1433,3 +1433,41 @@ func TestSectionVocabularyIsActuallyChecked(t *testing.T) {
 		}
 	}
 }
+
+// TestArticleOwnsReadsTheClaimNotTheResult pins the one property that makes
+// Owns worth having separately from the ownership map: it answers for a path
+// git has never seen. The ownership map is built by applying `covers:` to the
+// tracked file list, so it is structurally incapable of that, and the scoped
+// untracked warning has nothing else to ask.
+func TestArticleOwnsReadsTheClaimNotTheResult(t *testing.T) {
+	a := &Article{
+		ID:         "arch-api",
+		Covers:     []string{"app/api/**", "web/*.js"},
+		FilesBlock: map[string]int{"tools/one_off.py": 12},
+	}
+	for _, tc := range []struct {
+		path string
+		want bool
+		why  string
+	}{
+		{"app/api/brand_new.py", true, "under a `/**` glob, and never staged"},
+		{"web/client.js", true, "a single-segment `*` glob"},
+		{"web/nested/deep.js", false, "`*` must not cross a directory boundary"},
+		{"tools/one_off.py", true, "named explicitly in ## FILES"},
+		{"app/core/engine.py", false, "owned by a different article"},
+	} {
+		if got := a.Owns(tc.path); got != tc.want {
+			t.Errorf("Owns(%q) = %v, want %v — %s", tc.path, got, tc.want, tc.why)
+		}
+	}
+}
+
+// An article claiming nothing must not quietly claim everything. Under the
+// scoped warning that would re-report every peer session's work in progress,
+// which is the noise the scoping exists to remove.
+func TestArticleOwnsNothingWhenItClaimsNothing(t *testing.T) {
+	a := &Article{ID: "recipe-add-endpoint"}
+	if a.Owns("app/api/handler.py") {
+		t.Error("an article with no `covers:` and no ## FILES claimed a path")
+	}
+}

@@ -6,9 +6,18 @@
    "articles": [
     "ref-surface"
    ],
-   "tests": []
+   "tests": [
+    "cmd/kb/cli_test.go",
+    "cmd/kb/version_test.go"
+   ]
   },
   "hooks/hooks.json": {
+   "articles": [
+    "arch-gates"
+   ],
+   "tests": []
+  },
+  "hooks/kb-context.sh": {
    "articles": [
     "arch-gates"
    ],
@@ -25,6 +34,8 @@
     "ref-surface"
    ],
    "tests": [
+    "cmd/kb/cli_test.go",
+    "cmd/kb/version_test.go",
     "internal/config/config_test.go",
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
@@ -37,10 +48,42 @@
     "arch-links"
    ],
    "tests": [
+    "cmd/kb/cli_test.go",
+    "cmd/kb/version_test.go",
     "internal/imports/imports_test.go"
    ]
   },
+  "internal/imports/scripts/dart.sh": {
+   "articles": [
+    "arch-links"
+   ],
+   "tests": []
+  },
   "internal/imports/scripts/go.sh": {
+   "articles": [
+    "arch-links"
+   ],
+   "tests": []
+  },
+  "internal/imports/scripts/java.sh": {
+   "articles": [
+    "arch-links"
+   ],
+   "tests": []
+  },
+  "internal/imports/scripts/py.sh": {
+   "articles": [
+    "arch-links"
+   ],
+   "tests": []
+  },
+  "internal/imports/scripts/rs.sh": {
+   "articles": [
+    "arch-links"
+   ],
+   "tests": []
+  },
+  "internal/imports/scripts/ts.sh": {
    "articles": [
     "arch-links"
    ],
@@ -51,6 +94,8 @@
     "arch-gates"
    ],
    "tests": [
+    "cmd/kb/cli_test.go",
+    "cmd/kb/version_test.go",
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
@@ -62,6 +107,8 @@
     "arch-gates"
    ],
    "tests": [
+    "cmd/kb/cli_test.go",
+    "cmd/kb/version_test.go",
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
@@ -73,6 +120,8 @@
     "arch-retrieval"
    ],
    "tests": [
+    "cmd/kb/cli_test.go",
+    "cmd/kb/version_test.go",
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
@@ -84,6 +133,8 @@
     "arch-retrieval"
    ],
    "tests": [
+    "cmd/kb/cli_test.go",
+    "cmd/kb/version_test.go",
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
@@ -95,6 +146,8 @@
     "arch-gates"
    ],
    "tests": [
+    "cmd/kb/cli_test.go",
+    "cmd/kb/version_test.go",
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
@@ -106,6 +159,21 @@
     "arch-links"
    ],
    "tests": [
+    "cmd/kb/cli_test.go",
+    "cmd/kb/version_test.go",
+    "internal/kb/digest_test.go",
+    "internal/kb/golden_test.go",
+    "internal/kb/judgement_test.go",
+    "internal/kb/linkcommand_test.go"
+   ]
+  },
+  "internal/kb/owners.go": {
+   "articles": [
+    "arch-retrieval"
+   ],
+   "tests": [
+    "cmd/kb/cli_test.go",
+    "cmd/kb/version_test.go",
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
@@ -117,6 +185,8 @@
     "arch-gates"
    ],
    "tests": [
+    "cmd/kb/cli_test.go",
+    "cmd/kb/version_test.go",
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
@@ -128,6 +198,8 @@
     "arch-retrieval"
    ],
    "tests": [
+    "cmd/kb/cli_test.go",
+    "cmd/kb/version_test.go",
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
@@ -139,6 +211,8 @@
     "arch-links"
    ],
    "tests": [
+    "cmd/kb/cli_test.go",
+    "cmd/kb/version_test.go",
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
@@ -150,10 +224,13 @@
     "arch-links"
    ],
    "tests": [
+    "cmd/kb/cli_test.go",
+    "cmd/kb/version_test.go",
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
-    "internal/kb/linkcommand_test.go"
+    "internal/kb/linkcommand_test.go",
+    "internal/repo/git_test.go"
    ]
   }
  },

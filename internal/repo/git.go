@@ -55,3 +55,43 @@ func TrackedFiles(excluded func(string) bool) ([]string, error) {
 	sort.Strings(files)
 	return files, nil
 }
+
+// UntrackedSource lists files git does not track, sorted, that the caller's
+// predicate accepts. Intended for one thing: warning that a gate's view of the
+// repository is narrower than the author's.
+//
+// TrackedFiles is deliberately not a filesystem walk, because a build artifact
+// in a working tree would make a gate answer differently on a dev machine than
+// in CI. That reasoning still holds and this does not weaken it — the result
+// here must never change a pass into a fail or back. It exists because the
+// blind spot has a cost the other direction: a whole new subsystem is
+// untracked until someone stages it, so `covers:` matches nothing and a
+// compile marker records a narrower set than the person running it believes.
+// Silent, and indistinguishable from success.
+//
+// --exclude-standard applies .gitignore, so genuine build output is already
+// out of scope and what remains is source somebody has written and not yet
+// added.
+func UntrackedSource(accept func(string) bool) ([]string, error) {
+	out, err := exec.Command("git", "ls-files", "--others", "--exclude-standard", "-z").Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("git ls-files --others failed: %s", strings.TrimSpace(string(ee.Stderr)))
+		}
+		return nil, fmt.Errorf("git ls-files --others failed: %w", err)
+	}
+	var files []string
+	seen := map[string]bool{}
+	for _, l := range strings.Split(string(out), "\x00") {
+		if l == "" || seen[l] {
+			continue
+		}
+		seen[l] = true
+		if accept != nil && !accept(l) {
+			continue
+		}
+		files = append(files, l)
+	}
+	sort.Strings(files)
+	return files, nil
+}

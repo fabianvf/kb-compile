@@ -9,9 +9,14 @@ the stale article, it acts on it. This enforces the two things that stop that.
 ```
 kb graph      Do the KB's edges RESOLVE, and is every source file owned?
 kb fresh      Has anyone LOOKED at the KB since the code moved?
-kb compiled   Record that a compile just reviewed the current content.
+kb compiled   Record that a compile reviewed the current content. Name the
+              articles you read, or record everything with no argument.
 kb read       Print one article, or one SECTION of one article.
+kb owners     I'm about to change this file: what do I need to know?
 kb eval       Score the article boundaries against git history.
+kb imports    Resolve a language's real import graph, for `link_commands`.
+kb version    Which build is this? A build that can't say on its own carries
+              a hash of its own bytes.
 ```
 
 Single static binary, no runtime. The repo describes itself in
@@ -45,7 +50,21 @@ updates go?" as a lookup instead of a grep.
 **`kb fresh`** validates *attention*. `.compiled-sources.json` holds a content
 hash per KB-owned file, recorded at the last compile. The check fails when any
 of them differs from what was reviewed, and names the owning articles so the
-re-read is scoped rather than "go read the KB".
+re-read is scoped rather than "go read the KB". It ends by printing the
+`kb compiled` line for exactly those articles, so recording what you read is a
+paste and recording less is deleting names from it.
+
+All three commands warn about production source git doesn't track yet, because
+ownership comes from `git ls-files`. A subsystem you've written and not staged
+has a `covers:` glob matching nothing and a compile marker narrower than you
+think it is, and that narrowing is silent and looks exactly like success.
+`kb graph` names every such file; `kb compiled` names them again as it writes
+the judgement, scoped to the articles you asked for so another session's work
+in progress isn't reported as yours - except for paths no article claims at
+all, which are nobody's work in progress and are always named. `kb fresh`
+reports exactly that slice. It is the one case the orphan ratchet can't reach,
+since it walks the tracked list too, and an article and the code it covers
+usually land in the same commit.
 
 ## Reading the KB without loading it
 
@@ -349,10 +368,19 @@ kb version
 `checksums.txt` ships alongside them. Pin a release rather than tracking
 `latest` where more than one person runs the gate: a checker that changes
 behaviour under a team is its own kind of drift. Replace `latest/download`
-with `download/v0.2.0` to do that.
+with `download/<tag>`, taking the tag from the releases page.
 
 With Go on the machine, `go install github.com/fabianvf/kb-compile/cmd/kb@latest`
-works too, and reports the module version it was built from.
+works too, and reports the module version it was built from. A commit works in
+place of `latest` and needs no release artifact, which is the easier pin if you
+are already installing from source.
+
+A build whose version can't identify it on its own - a `+dirty` tree, or `dev`
+- appends a hash of the binary's own bytes. Go derives `+dirty` from whether a
+tree has uncommitted changes and not from what is in them, so without that
+every build from one working tree reports the same string and "is this binary
+current?" has no answer short of running it. Tagged builds get no suffix, since
+they are already the thing you pin.
 
 In CI, the same curl line is usually all that is needed - no `setup-go` step,
 because the gate is a static binary and not a Go project concern.

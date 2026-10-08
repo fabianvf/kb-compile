@@ -118,20 +118,43 @@ you fixing what is in front of you.
 
 ## 6. Record the review
 
+Run what `kb fresh` told you to run. On a current build that is a scoped
+command naming every article it listed, and you delete the ones you did not get
+to:
+
 ```bash
-kb compiled
+kb compiled arch-scoring arch-ingest
 ```
 
-**Only if you actually did it.**
+Take the shape from the output rather than from here. Builds before the scoped
+form end with "record it with `kb compiled`" and silently discard article
+names, so on those, deleting names records everything anyway and the honest
+edit produces the dishonest result. The line `kb fresh` prints always comes
+from the binary that will consume it; this file does not.
+
+If your `kb fresh` printed no command, re-read every article it named before
+recording, because bare `kb compiled` attests to all of them.
+
+**Only record what you actually read.**
 
 This writes down "these articles were checked against this content", and
 nothing downstream can tell the difference between a careful pass and a bare
 `--write`. There is no verification behind this claim; it is load-bearing on
 your honesty, and every future agent inherits the consequence.
 
-If you ran out of context, or skipped an article, or could not tell whether a
-statement was still true - say which, and do not record. A red gate that says
-"go look at this" is worth far more than a green one that lies.
+Bare `kb compiled` records every KB-owned file at once, which asserts that
+every article the gate named was reviewed. Use it only when that is true. It
+prints how many articles it just spoke for, so check that number against the
+ones you opened.
+
+If you ran out of context, or could not tell whether a statement was still
+true, record the articles you did finish and say which you left. A gate that
+stays red on two articles is worth far more than a green one that lies about
+five, and far more than silence - which is also what a careless pass produces.
+
+The claim is only as fine as the widest glob you name. An article covering a
+directory is attested whole, so if it was flagged for five files and you read
+two, either read the other three or leave it red.
 
 Escape hatch for a revert or a pure rename, where content moved but nothing to
 review changed:

@@ -26,11 +26,18 @@ each check lives in the article that owns it.
 ```
 kb graph [--write]     validate; --write regenerates the derived artifacts
 kb fresh               fail if KB-owned source moved since the last compile
-kb compiled            record a compile. Never from a hook
+kb compiled [ARTICLE...]
+                       record a compile. With article names, records only what
+                       those articles own. Never from a hook
 kb read ID[#SECTION]   print an article, or one section
 kb eval                score the article boundaries against git history
+kb owners FILE...      the owning articles and their invariants, for one file
+kb imports LANG        tab-separated test/source edges, for
+                       a `link_commands` entry
 kb version             the release stamped in at build time, else the module
-                       version Go embedded, else `dev`
+                       version Go embedded, else `dev`. A version that cannot
+                       identify a build - `+dirty` or `dev` - carries a hash of
+                       the binary's own bytes
 
   --init               graph, with --write only: create a ratchet baseline
                        that starts non-empty. Refused once the baseline
@@ -73,7 +80,7 @@ existed.
 **`kb version` never invents a number it cannot substantiate.** It defaults
 to the empty string rather than a plausible-looking `0.1.0-dev`, and falls
 back through the `-ldflags` stamp, then the module version Go embeds for a
-`go install ...@v0.2.0` build, then `dev`. kb-init tells teams to pin the
+`go install ...@<tag>` build, then `dev`. kb-init tells teams to pin the
 version so the checker cannot change behaviour under them, and a binary that
 misreports which one it is makes that instruction unfollowable. The release
 workflow asserts the stamped value matches the tag before publishing.
@@ -94,6 +101,52 @@ The error has to carry the fix. This is also what makes the tool
 editor-agnostic: an agent that never loads a skill is still stopped by the
 binary and told what to do.
 
+**An OK line states the claim being recorded, not the bookkeeping.** Bare
+`kb compiled` used to print the file count, which is the part nobody can get
+wrong. It now names how many ARTICLES the record asserts were reviewed, against
+how many files actually changed, and says outright that the record is false for
+any of them you did not open. `kb fresh` prints the scoped command for exactly
+the articles it listed, and `kb compiled ARTICLE...` reports what remains
+unreviewed rather than only what was taken.
+
+**A file is recordable only when EVERY article that owns it was named.** The
+manifest is keyed by path and nothing else, so writing a hash attests that file
+to all of its owners at once. Scoping the record without this made the honest
+act the damaging one: `kb fresh` lists every owner and says "drop the ones you
+did not read", and for a co-owned file dropping a name recorded the file
+anyway, clearing the dropped article and turning the gate fully green on an
+article nobody opened. Held back, the shared file stays stale and both articles
+stay red, which is the truth - the only evidence either way is a file whose
+review is unfinished. `kb compiled` says which files it held and which articles
+it would otherwise have attested, because "recorded 0 file(s)" on its own is
+indistinguishable from a no-op.
+
+**The advisory scan may never change a verdict, including by dying.** The
+untracked-source warning is the one query in the tool that is not part of any
+gate, and `die` on its error broke that: `git ls-files --others` exits 128 on a
+`core.excludesFile` that `git ls-files` alone tolerates, so `kb fresh` went
+from 0 to 2 and the commit hook denied every commit in the checkout with "the
+knowledge base is stale" over a git config error. The failure is now printed
+and the reports omitted.
+
+**Flags must precede the article names.** Go's `flag` stops parsing at the
+first positional, so `kb compiled arch-api --root /repo` left `--root`
+unapplied - running the command against the wrong repository - and then
+reported `--root` as a misspelled article, naming neither the problem nor the
+fix. Any residual argument starting with `-` is refused by name. This exposure
+is new: before `compiled` took positionals, flag order could not matter, and
+`kb fresh` now actively trains people to type a positional form.
+
+**`kb version` must be able to identify the build it came from.** The Go
+toolchain derives `+dirty` from WHETHER a tree has uncommitted changes, not
+from their content, so every build from one working tree reported an identical
+string. That made "tell me if the binary looks stale" unanswerable except by
+running it and recognising behaviour - available only after you have already
+relied on it, which is the shape of every failure in this repo. The digest
+hashes the executable rather than the tree, so a plain `go build` gets the same
+guarantee as a scripted one. A tagged build gets no suffix: `kb-init` tells
+teams to pin a version, and appending bytes to one would break that.
+
 **Every allowlist entry requires a written reason.** `not_repo_paths` and
 `generated_paths` reject empty values. An entry without a reason is
 indistinguishable from a mistake, and this is the argument that decided YAML
@@ -110,6 +163,17 @@ in the file nobody reads.
 
 **Unknown keys are rejected.** A typo'd `covers:` silently owns nothing, which
 is exactly the class of failure this tool exists to catch.
+
+**The untracked-source scan is lazy, and that is load-bearing rather than
+tidy.** `git ls-files --others --exclude-standard` stats the whole working
+tree. Only `graph`, `fresh` and `compiled` read the answer, and `owners` runs
+from the `UserPromptSubmit` hook on every message a human sends - it is the one
+command sold as a cheap lookup, and an eager scan made it walk the tree for a
+result it never reads. Collapsing the `sync.OnceValue` back to a plain call at
+setup is the obvious cleanup and it puts the cost back.
+`TestOwnersDoesNotWalkTheWorkingTree` shims `git` onto PATH and fails if
+the call reappears, with `kb graph` as the control so a broken shim cannot
+pass as a fixed bug.
 
 **An explicit `exclude_dirs` REPLACES the defaults.** Vendored trees are
 excluded by default so adoption does not begin with thousands of orphans from
