@@ -11,4 +11,5 @@ The format these follow is [`SPEC.md`](../../SPEC.md) at the repo root.
 | [arch-gates.md](arch-gates.md) | The two gates: structure, and attention |
 | [arch-links.md](arch-links.md) | Finding which tests exercise which source |
 | [arch-retrieval.md](arch-retrieval.md) | Reading the KB without loading it, and measuring the carve |
+| [arch-tasks.md](arch-tasks.md) | Task notes, and how they may not reach the KB |
 | [ref-surface.md](ref-surface.md) | Config schema and CLI surface |

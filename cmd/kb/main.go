@@ -23,6 +23,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/fabianvf/kb-compile/internal/config"
 	"github.com/fabianvf/kb-compile/internal/imports"
@@ -53,6 +54,9 @@ USAGE
   kb imports LANG        Print tab-separated test/source edges for a language,
                          by resolving its real import graph. Meant for a
                          link_commands entry rather than for reading.
+  kb task SUBCOMMAND     An agent's uncommitted working notes for one task:
+                         start, commit, context, finish, list, drop. Never
+                         writes the KB. ` + "`kb task --help`" + ` for details.
   kb version             The release stamped in at build time, else the module
                          version Go embedded, else "dev". A version that cannot
                          identify a build on its own carries a hash of the
@@ -67,6 +71,196 @@ FLAGS
                          refused once a baseline exists, so it cannot widen
                          one.
 `
+
+const taskUsage = `kb task — an agent's working notes for one task, in ` + kb.TaskRoot + `/.
+
+Unverified scratch, ignored by git. Nothing here writes an article or records a
+compile. Lessons reach the KB only through a kb-harvest proposal that kb-compile
+reviews.
+
+USAGE
+  kb task start SLUG [--goal "..."]
+                         Create a task and make it current. Prints the id.
+                         Refused while another task is current in this checkout.
+  kb task commit "MESSAGE"
+                         Append a milestone: time, HEAD, and the diff stat since
+                         the previous one. Stdin, if any, becomes the body: what
+                         you learned, tried or rejected.
+  kb task context [--full] [ID]
+                         The resume view, for after compaction or in a fresh
+                         session. Under ~1.5k tokens by default: goal, last 3
+                         milestones, files touched, owning articles. --full
+                         prints the whole log. Defaults to the current task;
+                         an ID reads a finished one.
+  kb task finish         Mark complete and clear current. Keeps the directory,
+                         because harvest needs it.
+  kb task list           Every task and its state.
+  kb task drop ID        Delete a task's notes.
+
+Flags may go before or after the other arguments. Use -- before a message that
+starts with a dash.
+`
+
+// runTask is reached before any KB check runs, which is the rule in code: a task
+// command never builds ownership, so it has nothing with which to touch a gate.
+func runTask(cfg *config.Config, sub string, a taskArgs) {
+	needs := func(n int, form string) {
+		if len(a.pos) != n {
+			die("usage: kb task %s", form)
+		}
+	}
+	if a.hasGoal && sub != "start" {
+		die("--goal only applies to `kb task start`.")
+	}
+	if a.full && sub != "context" {
+		die("--full only applies to `kb task context`.")
+	}
+	switch sub {
+	case "start":
+		needs(1, `start <slug> [--goal "..."]`)
+		id, err := kb.TaskStart(a.pos[0], a.goal)
+		if err != nil {
+			die("%v", err)
+		}
+		fmt.Println(id)
+	case "commit":
+		needs(1, `commit "<message>"`)
+		body, waited := readTaskBody(os.Stdin, time.Second)
+		if waited {
+			fmt.Fprintln(os.Stderr, "kb task commit: stdin stayed open with nothing "+
+				"on it, so this milestone has no body. Pipe the body in, or use "+
+				"</dev/null to say there is none.")
+		}
+		id, err := kb.TaskCommit(a.pos[0], body)
+		if err != nil {
+			die("%v", err)
+		}
+		fmt.Printf("kb task commit: recorded in %s\n", id)
+	case "context":
+		if len(a.pos) > 1 {
+			die("usage: kb task context [--full] [id]")
+		}
+		id := ""
+		if len(a.pos) == 1 {
+			id = a.pos[0]
+		}
+		out, err := kb.TaskContext(cfg.ReverseIndexPath(), id, a.full)
+		if err != nil {
+			die("%v", err)
+		}
+		fmt.Print(out)
+	case "finish":
+		needs(0, "finish")
+		id, err := kb.TaskFinish()
+		if err != nil {
+			die("%v", err)
+		}
+		fmt.Printf("kb task finish: %s is complete. Now run the kb-harvest skill "+
+			"for task %s\n", id, id)
+	case "list":
+		needs(0, "list")
+		out, err := kb.TaskList()
+		if err != nil {
+			die("%v", err)
+		}
+		fmt.Print(out)
+	case "drop":
+		needs(1, "drop <id>")
+		if err := kb.TaskDrop(a.pos[0]); err != nil {
+			die("%v", err)
+		}
+		fmt.Printf("kb task drop: deleted %s\n", a.pos[0])
+	}
+}
+
+type taskArgs struct {
+	pos                 []string
+	goal, root, cfg     string
+	hasGoal, full, help bool
+}
+
+// parseTaskArgs accepts flags on either side of the positionals, because the
+// documented form is `kb task start <slug> --goal "..."` and Go's flag package
+// stops at the first positional. It would leave --goal unapplied, and the
+// `kb compiled` refusal is no model here: that command has no flag to take
+// after its names.
+func parseTaskArgs(args []string) taskArgs {
+	var a taskArgs
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			a.pos = append(a.pos, args[i+1:]...)
+			break
+		}
+		if !strings.HasPrefix(arg, "-") || arg == "-" {
+			a.pos = append(a.pos, arg)
+			continue
+		}
+		name, val, hasVal := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+		switch name {
+		case "help", "h":
+			a.help = true
+		case "full":
+			if hasVal {
+				die("--full takes no value.")
+			}
+			a.full = true
+		case "goal", "root", "config":
+			if !hasVal {
+				i++
+				if i == len(args) {
+					die("--%s needs a value.", name)
+				}
+				val = args[i]
+			}
+			switch name {
+			case "goal":
+				a.goal, a.hasGoal = val, true
+			case "root":
+				a.root = val
+			case "config":
+				a.cfg = val
+			}
+		default:
+			die("unknown flag %q for `kb task`. A message that starts with a dash "+
+				"goes after --: `kb task commit -- %q`.", arg, arg)
+		}
+	}
+	return a
+}
+
+// readTaskBody takes a milestone's body from stdin if there is one. waited
+// reports giving up on a stream that stayed open and silent.
+//
+// Not a plain ReadAll, because an agent's shell can hand down a pipe nobody will
+// ever write to or close, and hanging there would stop the agent at the command
+// it runs to save its place. The wait only covers the first byte: once anything
+// arrives this reads to EOF, so a slow writer loses nothing.
+func readTaskBody(f *os.File, wait time.Duration) (string, bool) {
+	st, err := f.Stat()
+	if err != nil || st.Mode()&os.ModeCharDevice != 0 {
+		return "", false
+	}
+	started := make(chan struct{})
+	done := make(chan string, 1)
+	go func() {
+		first := make([]byte, 4096)
+		n, err := f.Read(first)
+		close(started)
+		if err != nil {
+			done <- ""
+			return
+		}
+		rest, _ := io.ReadAll(f)
+		done <- string(first[:n]) + string(rest)
+	}()
+	select {
+	case <-started:
+		return <-done, false
+	case <-time.After(wait):
+		return "", true
+	}
+}
 
 // version is stamped by the release workflow with -ldflags. It is deliberately
 // empty by default rather than a plausible-looking number: kb-init tells teams
@@ -141,7 +335,24 @@ func main() {
 	evalCommits := fs.Int("commits", 500, "eval: how much history to walk")
 	evalMaxFiles := fs.Int("max-files", 15, "eval: skip commits touching more than this")
 	evalWorst := fs.Int("worst", 5, "eval: how many low-scoring changes to show")
-	_ = fs.Parse(os.Args[2:])
+
+	// `kb task` parses its own arguments: see parseTaskArgs.
+	var task taskArgs
+	if cmd == "task" {
+		task = parseTaskArgs(os.Args[2:])
+		*root, *cfgPath = task.root, task.cfg
+		if task.help || len(task.pos) == 0 {
+			fmt.Print(taskUsage)
+			return
+		}
+		switch task.pos[0] {
+		case "start", "commit", "context", "finish", "list", "drop":
+		default:
+			die("unknown task command %q.\n\n%s", task.pos[0], taskUsage)
+		}
+	} else {
+		_ = fs.Parse(os.Args[2:])
+	}
 
 	// A bootstrap that silently does nothing is worse than one that refuses:
 	// the adopter sees exit 0, assumes the baselines were recorded, and finds
@@ -189,7 +400,7 @@ func main() {
 	case "version":
 		fmt.Println("kb " + kbVersion())
 		return
-	case "graph", "fresh", "compiled", "read", "eval", "owners":
+	case "graph", "fresh", "compiled", "read", "eval", "owners", "task":
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		return
@@ -222,6 +433,13 @@ func main() {
 			die("no config at %s", path)
 		}
 		die("%v", err)
+	}
+
+	if cmd == "task" {
+		sub := task.pos[0]
+		task.pos = task.pos[1:]
+		runTask(cfg, sub, task)
+		return
 	}
 
 	if cmd == "read" {

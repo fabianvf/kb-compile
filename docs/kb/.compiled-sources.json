@@ -1,5 +1,5 @@
 {
-  "cmd/kb/main.go": "08344d610c8b9c524b8034d3f374baa700d4499de5ccad06e9630d6e42a6923a",
+  "cmd/kb/main.go": "52b90a40f28e1e992ee6ddbf733c7823cdf32112d8536c214491423b1503c7f0",
   "hooks/hooks.json": "36909d71f80cd590cdd27444b975173554051de77fa8d97417caee920967228b",
   "hooks/kb-context.sh": "c0eb486718f55b136b3789e506d8e6473f08ddf165f2ea1f0b1150dccb4950a6",
   "hooks/kb-fresh-gate.sh": "841d9a0485a99d6912df86e33711dbcce1e6f25bac613ca877592d8812d7c2cd",
@@ -21,5 +21,6 @@
   "internal/kb/ratchet.go": "73e831d284ee9b1b5819d1dae0ca3b247a698ea9a31975c5275838d1f26c2d7c",
   "internal/kb/read.go": "7a4989ccde52edfd797bfb0c169f8158b7bb0f2125d5e8be03010aabf5e68c93",
   "internal/kb/reverseindex.go": "3b6043b3f838896d3c682bba5fd6ed2ccef00979225fe0ae95af90210a25ac4a",
+  "internal/kb/task.go": "288ff95b63bc3950eb5f33e008426ced7b577a37406d5c20038b3ceca1629348",
   "internal/repo/git.go": "a82e9a9b15c8d1e61947577edfc470d4a4fb3f2eaf1f445630b6739949bebac4"
 }

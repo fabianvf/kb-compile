@@ -34,6 +34,8 @@ kb eval                score the article boundaries against git history
 kb owners FILE...      the owning articles and their invariants, for one file
 kb imports LANG        tab-separated test/source edges, for
                        a `link_commands` entry
+kb task SUBCOMMAND     uncommitted working notes for one task: start, commit,
+                       context, finish, list, drop. See arch-tasks
 kb version             the release stamped in at build time, else the module
                        version Go embedded, else `dev`. A version that cannot
                        identify a build - `+dirty` or `dev` - carries a hash of
@@ -225,3 +227,5 @@ a PNG fixture parked under a test directory and surprising if you configure
   allowlists; changing what counts as a test changes the ratchet's scope.
 - [arch-links.md](arch-links.md) - owns the adapter and `link_commands`
   semantics these fields configure.
+- [arch-tasks.md](arch-tasks.md) - `kb task` dispatches before the graph pass
+  and parses its own flags, so moving it below the checks breaks its rule.
