@@ -72,9 +72,15 @@ COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')
 [[ $COMMAND == *"git commit"* ]] || exit 0
 
 if ! command -v kb >/dev/null 2>&1; then
-  deny "$(printf '%s\n\n%s' \
+  # `kb install` records the build that wrote this hook, because whoever hits
+  # this got the hook from a clone and has never heard of the project.
+  version=$(cat .claude/hooks/kb-version 2>/dev/null || true)
+  install="Install it: https://github.com/fabianvf/kb-compile#installing"
+  [ -z "$version" ] || install="Install the version this repo pinned: go install github.com/fabianvf/kb-compile/cmd/kb@$version (or a prebuilt binary: https://github.com/fabianvf/kb-compile#installing)"
+  deny "$(printf '%s\n\n%s\n\n%s' \
     "This repo uses kb-compile, but \`kb\` is not on PATH, so the commit gate cannot run." \
-    "Install it — see the project README — or remove this hook. Exiting quietly instead would make every commit here look gated when none of them are, which is the failure this tool exists to prevent.")"
+    "$install" \
+    "Removing this hook is the other option. Exiting quietly instead would make every commit here look gated when none of them are, which is the failure this tool exists to prevent.")"
 fi
 
 if OUT=$(kb fresh 2>&1); then

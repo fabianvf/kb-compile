@@ -2,6 +2,15 @@
  "_generated_by": "kb graph --write",
  "_what": "source path -> {articles that document it, tests that exercise it}. Answers \"I touched this file: what do I read, and where do the test updates go?\" `tests` is derived from real imports and exact stem reconstruction, never filename similarity. `articleTests` lists the subsystem-level guards each article names, which no single file imports. Generated: do not hand-edit.",
  "owners": {
+  "assets.go": {
+   "articles": [],
+   "tests": [
+    "internal/kb/digest_test.go",
+    "internal/kb/golden_test.go",
+    "internal/kb/judgement_test.go",
+    "internal/kb/linkcommand_test.go"
+   ]
+  },
   "cmd/kb/main.go": {
    "articles": [
     "ref-surface"
@@ -149,6 +158,20 @@
    ]
   },
   "internal/kb/fresh.go": {
+   "articles": [
+    "arch-gates"
+   ],
+   "tests": [
+    "cmd/kb/cli_test.go",
+    "cmd/kb/task_test.go",
+    "cmd/kb/version_test.go",
+    "internal/kb/digest_test.go",
+    "internal/kb/golden_test.go",
+    "internal/kb/judgement_test.go",
+    "internal/kb/linkcommand_test.go"
+   ]
+  },
+  "internal/kb/install.go": {
    "articles": [
     "arch-gates"
    ],

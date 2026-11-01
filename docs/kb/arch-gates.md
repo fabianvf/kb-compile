@@ -6,6 +6,7 @@ covers:
   - internal/kb/checks.go
   - internal/kb/ratchet.go
   - internal/kb/fresh.go
+  - internal/kb/install.go
   - hooks/**
 see_also:
   - arch-links
@@ -210,6 +211,16 @@ its job. Absence of an edge is checkable; quality of a citation is not.
 **The dead-end ratchet checks absence, never quality.** An edge must name an
 obligation rather than a topic, and no checker can tell those apart. Enforcing
 what is checkable and documenting what is not beats a rule that pretends.
+
+**A team gets the hooks by committing them, not through the plugin.** Per the Claude
+Code docs (checked 2026-11-01), enabling a plugin in a committed settings file does
+not download it, so each collaborator must run an install nobody told them about,
+and the gate is silently absent until they do. `kb install` writes copies into
+`.claude/` instead, from the one set `assets.go` embeds, and re-running it replaces
+them. Tested 2026-11-01 on a fresh clone with no plugin, under
+`claude -p`: the digest reached the model and the gate script denied a stale commit.
+The interactive trust dialog was not tested. This repo itself has not run `kb
+install`, so nothing gates a commit here without the plugin.
 
 **The prompt hook prints a task's resume view once per session, then one line.**
 `kb task context` asks git about the working tree and costs up to 1.5k tokens, so

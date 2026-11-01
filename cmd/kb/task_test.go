@@ -311,3 +311,117 @@ func TestContextHookSurfacesTheTaskCheaply(t *testing.T) {
 		t.Errorf("hook still names a finished task: %s", out)
 	}
 }
+
+func TestInstallIsCommittableAndIdempotent(t *testing.T) {
+	r := newRepo(t)
+	r.write(".claude/settings.json", `{"model":"x","hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"mine.sh"}]}]}}`)
+	r.ok("install")
+
+	settings := filepath.Join(r.dir, ".claude/settings.json")
+	first, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"model": "x"`, "mine.sh", "kb-fresh-gate.sh", "kb-context.sh"} {
+		mustContain(t, string(first), want, "the merge adds hooks and keeps the rest")
+	}
+	st, err := os.Stat(filepath.Join(r.dir, ".claude/hooks/kb-fresh-gate.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode()&0o111 == 0 {
+		t.Error("a hook without its executable bit stops gating with no message")
+	}
+	// The link has to resolve from where the skill landed.
+	skill, err := os.ReadFile(filepath.Join(r.dir, ".claude/skills/kb-compile/SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, string(skill), "(../../kb/SPEC.md)", "the spec link is rewritten")
+	if _, err := os.Stat(filepath.Join(r.dir, ".claude/kb/SPEC.md")); err != nil {
+		t.Errorf("the skills point at a spec that was not written: %v", err)
+	}
+
+	again := r.ok("install")
+	mustNotContain(t, again, "updated", "a second run has nothing to change")
+	second, _ := os.ReadFile(settings)
+	if !bytes.Equal(first, second) {
+		t.Errorf("second run changed settings:\n%s", second)
+	}
+	if res := r.run("fresh"); res.code != 0 {
+		t.Errorf("installing must not touch a gate input: %s", res.all())
+	}
+}
+
+func TestInstallRefusesSettingsItCannotMerge(t *testing.T) {
+	r := newRepo(t)
+	r.write(".claude/settings.json", "{not json")
+	res := r.run("install")
+	if res.code == 0 {
+		t.Fatal("install overwrote a settings file it could not read")
+	}
+	mustContain(t, res.all(), "Fix it and run `kb install` again", "the failure carries the fix")
+	if _, err := os.Stat(filepath.Join(r.dir, ".claude/hooks")); err == nil {
+		t.Error("hooks were written with nothing to run them")
+	}
+}
+
+// Whoever hits this got the hook from a clone and has never heard of the project.
+func TestGateGivesThePinnedInstallCommand(t *testing.T) {
+	jq, err := exec.LookPath("jq")
+	if err != nil {
+		t.Skip("needs jq")
+	}
+	r := newRepo(t)
+	r.ok("install")
+	r.write(".claude/hooks/kb-version", "v9.9.9\n")
+	bin := t.TempDir()
+	if err := os.Symlink(jq, filepath.Join(bin, "jq")); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", filepath.Join(r.dir, ".claude/hooks/kb-fresh-gate.sh"))
+	cmd.Env = append(os.Environ(), "CLAUDE_PROJECT_DIR="+r.dir, "PATH="+bin+":/usr/bin:/bin")
+	cmd.Stdin = strings.NewReader(`{"tool_input":{"command":"git commit -m x"}}`)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	mustContain(t, string(out), `"permissionDecision": "deny"`, "no kb must not mean no gate")
+	mustContain(t, string(out), "cmd/kb@v9.9.9", "the command names the pinned version")
+}
+
+func TestPinnableVersion(t *testing.T) {
+	for v, want := range map[string]string{
+		"v1.2.3":                 "v1.2.3",
+		"v0.1.1-0.2026-96ca902f": "v0.1.1-0.2026-96ca902f",
+		"v1.2.3+dirty.abc":       "",
+		"dev.abc":                "",
+	} {
+		if got := pinnableVersion(v); got != want {
+			t.Errorf("pinnableVersion(%q) = %q, want %q", v, got, want)
+		}
+	}
+}
+
+func TestContextHookSuggestsATaskOnce(t *testing.T) {
+	r := newRepo(t)
+	hook, err := filepath.Abs("../../hooks/kb-context.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := t.TempDir()
+	prompt := func() string {
+		t.Helper()
+		cmd := exec.Command("bash", hook)
+		cmd.Env = append(os.Environ(), "CLAUDE_PROJECT_DIR="+r.dir, "TMPDIR="+tmp,
+			"PATH="+filepath.Dir(kbBin)+":"+os.Getenv("PATH"))
+		cmd.Stdin = strings.NewReader(`{"session_id":"s2","prompt":"hi"}`)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("hook: %v: %s", err, out)
+		}
+		return string(out)
+	}
+	mustContain(t, prompt(), "kb task start", "a new session hears about tasks")
+	mustNotContain(t, prompt(), "kb task start", "once a session, not on every message")
+}

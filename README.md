@@ -16,6 +16,7 @@ kb owners     I'm about to change this file: what do I need to know?
 kb eval       Score the article boundaries against git history.
 kb imports    Resolve a language's real import graph, for `link_commands`.
 kb task       An agent's uncommitted working notes for one task.
+kb install    Put the gate, hooks and skills in .claude/, for committing.
 kb version    Which build is this? A build that can't say on its own carries
               a hash of its own bytes.
 ```
@@ -164,6 +165,11 @@ one as evidence rather than authority, and then the notes are deleted.
 The log's value to the KB is the why. The diff already carries the what, and
 the alternative somebody tried and rejected is written down nowhere else. Most
 tasks produce nothing durable, and that is the expected result.
+
+Agents will not reach for this unprompted, and one cannot foresee the compaction
+that would make it pay off. So the context hook suggests it once per session when
+no task is current, and `kb-init` writes the rule into `AGENTS.md`. Whether that is
+enough has not been measured.
 
 Harvests are reviewed even when `kb fresh` is green. The commit gate compiles work
 as it lands, so by the time a task finishes its files are usually already clean.
@@ -373,14 +379,32 @@ message is written as a fix rather than a diagnostic.
 
 ### Installing
 
-Two halves, and the plugin is only one of them. The skills and the commit hook
-come from the plugin; the gates they invoke are the `kb` binary, and the plugin
-cannot install it for you.
+Two halves: the `kb` binary, and the hooks and skills that make agents use it.
+For a repository a team works in, commit the second half so it arrives with the
+clone:
+
+```bash
+kb install
+git add .claude
+```
+
+Enabling a plugin in a committed settings file does not download it for
+collaborators, so a team relying on one has a gate only for the people who happened
+to install it. The plugin is for your own machine, across every repo you open:
 
 ```bash
 /plugin marketplace add fabianvf/kb-compile
 /plugin install kb-compile
 ```
+
+Both at once is harmless: the gate runs twice and the digest still appears once.
+Run `kb install` again after upgrading.
+
+What this cannot do is reach everyone. The binary does not arrive by cloning, so
+the commit gate denies commits until it is there and gives the install command for
+the version `kb install` recorded. A folder has to be trusted before Claude Code
+runs its hooks, and other editors get only CI and `AGENTS.md`. CI is the one
+guarantee across all of them.
 
 Then the binary. Prebuilt, no Go toolchain required - pick your platform from
 `kb_{linux,darwin,windows}_{amd64,arm64}`:

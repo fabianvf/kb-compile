@@ -57,6 +57,9 @@ USAGE
   kb task SUBCOMMAND     An agent's uncommitted working notes for one task:
                          start, commit, context, finish, list, drop. Never
                          writes the KB. ` + "`kb task --help`" + ` for details.
+  kb install             Write the commit gate, the context hook and the skills
+                         into .claude/ for committing, so a teammate gets them
+                         by cloning. Run it again after upgrading kb.
   kb version             The release stamped in at build time, else the module
                          version Go embedded, else "dev". A version that cannot
                          identify a build on its own carries a hash of the
@@ -262,6 +265,15 @@ func readTaskBody(f *os.File, wait time.Duration) (string, bool) {
 	}
 }
 
+// pinnableVersion is the version if `go install` could fetch it, else "". A
+// dirty or dev build names no commit anyone else can get.
+func pinnableVersion(v string) string {
+	if !strings.HasPrefix(v, "v") || strings.Contains(v, "+") {
+		return ""
+	}
+	return v
+}
+
 // version is stamped by the release workflow with -ldflags. It is deliberately
 // empty by default rather than a plausible-looking number: kb-init tells teams
 // to pin the version, and a binary that reports one it cannot substantiate
@@ -400,7 +412,7 @@ func main() {
 	case "version":
 		fmt.Println("kb " + kbVersion())
 		return
-	case "graph", "fresh", "compiled", "read", "eval", "owners", "task":
+	case "graph", "fresh", "compiled", "read", "eval", "owners", "task", "install":
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		return
@@ -413,6 +425,27 @@ func main() {
 		if err := os.Chdir(*root); err != nil {
 			die("cannot enter --root: %v", err)
 		}
+	}
+
+	// Ahead of config discovery, like `kb imports`: the hooks stand down quietly
+	// in a repo with no config, so the order of adoption does not matter here.
+	if cmd == "install" {
+		v := pinnableVersion(kbVersion())
+		report, err := kb.Install(v)
+		for _, line := range report {
+			fmt.Println("kb install: " + line)
+		}
+		if err != nil {
+			die("%v", err)
+		}
+		if v == "" {
+			fmt.Fprintf(os.Stderr, "kb install: WARN  %s cannot be installed by "+
+				"version, so the commit gate cannot tell a teammate which kb to "+
+				"get. Run this from a release build to pin it.\n", kbVersion())
+		}
+		fmt.Println("kb install: commit .claude/ so teammates get these by cloning. " +
+			"They still need `kb` on PATH, and the commit gate tells them so.")
+		return
 	}
 
 	path := *cfgPath

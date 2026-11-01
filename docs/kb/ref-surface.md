@@ -36,6 +36,8 @@ kb imports LANG        tab-separated test/source edges, for
                        a `link_commands` entry
 kb task SUBCOMMAND     uncommitted working notes for one task: start, commit,
                        context, finish, list, drop. See arch-tasks
+kb install             write the gate, hooks, skills and spec into .claude/ for
+                       committing. Merges settings.json. See arch-gates
 kb version             the release stamped in at build time, else the module
                        version Go embedded, else `dev`. A version that cannot
                        identify a build - `+dirty` or `dev` - carries a hash of

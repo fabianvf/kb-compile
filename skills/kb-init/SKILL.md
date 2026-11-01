@@ -350,18 +350,29 @@ fi
 this hook is a convenience rather than the only thing standing between you and
 that commit. Keep both.
 
-Install the context hook too, on `UserPromptSubmit`. It injects the digest
-once per session and attaches `kb owners` output for any file the message
-names. Measured: two agents given a real bug in a repo whose `AGENTS.md` tells
-them to look a file up before changing it both went straight to grep and never
-opened the KB at all. Telling an agent the knowledge exists does not get it
-read; putting it in front of them might.
+Then install the agent hooks, and commit what this writes:
 
-```json
-"UserPromptSubmit": [
-  {"hooks": [{"type": "command", "command": "<plugin>/hooks/kb-context.sh"}]}
-]
+```bash
+kb install
+git add .claude
 ```
+
+That puts the commit gate, the context hook and these skills in `.claude/`, so a
+teammate gets them by cloning. It merges into an existing `.claude/settings.json`,
+and it refuses one it cannot parse. Do not wire these through the plugin's path: a
+plugin enabled in a committed settings file is not downloaded for collaborators, so
+everyone without it would silently have no gate.
+
+The context hook injects the digest once per session and attaches `kb owners`
+output for any file the message names. Measured: two agents given a real bug in a
+repo whose `AGENTS.md` tells them to look a file up before changing it both went
+straight to grep and never opened the KB at all. Telling an agent the knowledge
+exists does not get it read; putting it in front of them might.
+
+The binary is the one thing that does not arrive by cloning. The commit gate denies
+commits when `kb` is missing and gives the install command for the version recorded
+here, so install from a release build. Other editors get only CI and `AGENTS.md`,
+which is why step 6 is not optional.
 
 **Never add `kb compiled` to a hook.** If you take one thing from this skill,
 take that. It is the line between a gate and a formality, and the failure is
@@ -391,6 +402,11 @@ To find what to read, look the file up rather than grepping:
 Before committing, run `kb fresh`. If it names articles, re-read every one of
 them against the changed files, then run the exact command `kb fresh` told you
 to run. Never record an article you did not open.
+
+For long or multi-step work, `kb task start <slug> --goal "..."`, and
+`kb task commit "..."` after a dead end or a rejected approach. `kb task context`
+gets your place back after compaction. When you finish, `kb task finish` and the
+kb-harvest skill.
 ```
 
 Duplicating this into a second file guarantees the copies diverge. One source,

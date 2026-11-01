@@ -56,6 +56,14 @@ if [ ! -e "$marker" ]; then
   if [ -s .kb/tasks/CURRENT ] && ctx=$(kb task context 2>/dev/null) && [ -n "$ctx" ]; then
     echo
     printf '%s\n' "$ctx"
+  # Agents will not go looking for this, for the reason at the top of this file,
+  # and an agent cannot foresee the compaction that would make it pay off. Probed
+  # because a teammate's older binary has no `kb task` to recommend.
+  elif [ ! -s .kb/tasks/CURRENT ] && kb task list >/dev/null 2>&1; then
+    echo
+    echo "For long or multi-step work: \`kb task start <slug> --goal \"...\"\`, then"
+    echo "\`kb task commit \"...\"\` after a dead end or a rejected approach. It survives"
+    echo "compaction. Skip it for a quick fix."
   fi
 elif [ -s .kb/tasks/CURRENT ]; then
   # One line and no git, on every later prompt. The session marker survives
