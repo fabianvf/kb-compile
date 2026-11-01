@@ -31,7 +31,18 @@ across five commits appears once. It also survives merges - bringing trunk down
 into a branch does not create work for files already reviewed on the other
 side.
 
-If it prints OK, there is nothing to compile. Say so and stop.
+Then look for finished task notes:
+
+```bash
+kb task list
+```
+
+**A finished task can be waiting even when `kb fresh` prints OK.** The commit gate
+compiles work as it lands, so a task whose commits are all in has a green gate and
+still has lessons in its log. Step 6 covers it.
+
+If `kb fresh` prints OK and no finished task is listed, there is nothing to compile.
+Say so and stop.
 
 ## 2. Reconcile each article
 
@@ -116,9 +127,42 @@ You are the only reader that article is guaranteed to get before the next agent
 acts on it. The scoping exists to stop the compile being unbounded, not to stop
 you fixing what is in front of you.
 
-## 6. Record the review
+## 6. Pull in finished tasks
 
-Run what `kb fresh` told you to run. On a current build that is a scoped
+For each task `kb task list` shows as `complete`, read `.kb/tasks/<id>/HARVEST.md`.
+If it has none, follow the [kb-harvest](../kb-harvest/SKILL.md) skill to write one
+first.
+
+**A harvest is evidence, not authority.** It came from an unverified log. For each
+delta, check it against the current code and against the article, then accept it,
+reword it, or reject it. Reject anything derivable from the code, anything
+the code now contradicts, and anything a later commit overtook. A claim about why
+something was rejected often cannot be checked against code. Keep it only if it is
+specific and dated, and do not present it as more certain than the log was.
+
+This applies to the articles `kb fresh` names and to any other article a harvest
+names. Leave a task marked `current` alone: it is still in progress, and it may
+belong to another session.
+
+When you have been through a task's deltas, delete its notes. The review is
+finished, and whatever mattered is in an article now:
+
+```bash
+kb task drop <id>
+```
+
+If you edited an article here, run `kb graph --write` again: it catches a bad path
+in a delta and regenerates the digest.
+
+If you did not finish a harvest, leave that task and say so in your report.
+
+## 7. Record the review
+
+Harvested edits change articles, not source, and the manifest only hashes source.
+So if `kb fresh` printed OK in step 1, there is nothing to record: `kb compiled` has
+no new content to attest, and you skip to the report.
+
+Otherwise, run what `kb fresh` told you to run. On a current build that is a scoped
 command naming every article it listed, and you delete the ones you did not get
 to:
 
@@ -165,11 +209,12 @@ KB_COMPILE_OK=1 kb fresh
 
 Typing that often means the check is wrong and should be fixed, not silenced.
 
-## 7. Report
+## 8. Report
 
 Say what you checked and what you changed:
 
 - articles reviewed, and which needed edits
+- tasks harvested and dropped, with the deltas you accepted and rejected
 - anything you fixed that was outside today's change
 - anything you could not verify
 

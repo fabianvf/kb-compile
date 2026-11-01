@@ -9,6 +9,7 @@ covers:
   - hooks/**
 see_also:
   - arch-links
+  - arch-tasks
   - ref-surface
 ---
 # The two gates
@@ -210,6 +211,13 @@ its job. Absence of an edge is checkable; quality of a citation is not.
 obligation rather than a topic, and no checker can tell those apart. Enforcing
 what is checkable and documenting what is not beats a rule that pretends.
 
+**The prompt hook prints a task's resume view once per session, then one line.**
+`kb task context` asks git about the working tree and costs up to 1.5k tokens, so
+running it per prompt would pay both on every message, the cost
+`TestOwnersDoesNotWalkTheWorkingTree` keeps out of `kb owners`. The one line reads
+only `.kb/tasks/CURRENT`, and it is what reaches an agent after compaction, which
+the session marker survives and the resume view does not.
+
 ## GOTCHA
 
 **A heading inside a fenced block is an example, not a section.** Read as a
@@ -267,3 +275,5 @@ gate nobody has seen fail is a gate nobody knows works.
   the ratchet's scope and the index.
 - [ref-surface.md](ref-surface.md) - owns the config fields these checks read,
   including `test_rules`, which the ratchet and the link builder must agree on.
+- [arch-tasks.md](arch-tasks.md) - task notes must stay out of both gates, so a
+  change that feeds one into `kb fresh` or the manifest breaks that rule.

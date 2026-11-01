@@ -50,6 +50,18 @@ if [ ! -e "$marker" ]; then
     echo
     printf '%s\n' "$digest"
   fi
+  # A fresh session on an existing task is the case the resume view exists for.
+  # Once per session, for the same reason as the digest, and because it asks git
+  # for the working tree, which this hook must not do on every message.
+  if [ -s .kb/tasks/CURRENT ] && ctx=$(kb task context 2>/dev/null) && [ -n "$ctx" ]; then
+    echo
+    printf '%s\n' "$ctx"
+  fi
+elif [ -s .kb/tasks/CURRENT ]; then
+  # One line and no git, on every later prompt. The session marker survives
+  # compaction and the resume view does not, so this is how an agent that has just
+  # lost its context finds out there is something to read.
+  echo "Current task: $(head -n 1 .kb/tasks/CURRENT 2>/dev/null || true). \`kb task context\` resumes it."
 fi
 
 # Anything in the prompt that looks like a repo path gets its invariants

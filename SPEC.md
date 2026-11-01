@@ -344,6 +344,27 @@ narrower set than the person running it believes. `kb graph` and `kb compiled`
 warn when untracked files match `prod_roots`, because that narrowing is silent
 and looks exactly like success.
 
+### Task notes - neither
+
+`.kb/tasks/<id>/` is not an artifact of the KB at all. It is not derived from the
+KB, it records no judgement, and no gate reads it. It is ignored by git and has no
+hashes or ratchets, because it is scratch: what an agent believed while working,
+unverified.
+
+**The direction is one way, and only through review.** A task log never writes an
+article and never records a compile. `kb-harvest` proposes deltas from it;
+`kb-compile` treats them as evidence, accepts or rejects each, and only what it
+accepts becomes KB content. A path around that review would put unverified text
+behind a green `kb fresh`.
+
+That review is not tied to staleness. The commit gate compiles work as it lands,
+so a finished task's files are usually clean already, and its harvest is reviewed
+anyway. Those edits change articles and not source, so they record nothing new in
+the manifest.
+
+An article may not cite a task log. Git does not track it, and it is deleted once
+reviewed, so what a harvest contributes has to carry its own reason and date (§2).
+
 ---
 
 ## 6. Article types

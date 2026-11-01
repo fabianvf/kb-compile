@@ -1,7 +1,7 @@
 {
   "cmd/kb/main.go": "52b90a40f28e1e992ee6ddbf733c7823cdf32112d8536c214491423b1503c7f0",
   "hooks/hooks.json": "36909d71f80cd590cdd27444b975173554051de77fa8d97417caee920967228b",
-  "hooks/kb-context.sh": "c0eb486718f55b136b3789e506d8e6473f08ddf165f2ea1f0b1150dccb4950a6",
+  "hooks/kb-context.sh": "29b24f5a9b3c0c3b321ada1e5f257146471b61b9964412b8eb90be75df19a53a",
   "hooks/kb-fresh-gate.sh": "841d9a0485a99d6912df86e33711dbcce1e6f25bac613ca877592d8812d7c2cd",
   "internal/config/config.go": "993a09e32d633a0e9a2bf619865a3dd2e46c77a64ce51a47cc08c1a9f16b4262",
   "internal/imports/imports.go": "84ec32d608e6b38464d7dcac8bdad7ea03236020484e14471d119aea8fd8cf1a",

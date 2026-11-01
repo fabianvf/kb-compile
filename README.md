@@ -15,6 +15,7 @@ kb read       Print one article, or one SECTION of one article.
 kb owners     I'm about to change this file: what do I need to know?
 kb eval       Score the article boundaries against git history.
 kb imports    Resolve a language's real import graph, for `link_commands`.
+kb task       An agent's uncommitted working notes for one task.
 kb version    Which build is this? A build that can't say on its own carries
               a hash of its own bytes.
 ```
@@ -141,6 +142,31 @@ What none of this can do is tell whether the compile was any *good*. A
 `--write` with no reading is indistinguishable from a careful pass. The gate
 buys you "somebody was made to look at the right files", not "the article is
 correct".
+
+## Task memory
+
+A long-running agent needs to drop its raw trajectory without losing where it
+is. `kb task` keeps notes in `.kb/tasks/<id>/`, which git ignores:
+
+```
+kb task start fix-eviction --goal "stop evicting pinned entries"
+kb task commit "dropped the LRU approach" <<< "pins would need a second index"
+kb task context     # the resume view, under ~1.5k tokens
+kb task finish      # then the kb-harvest skill
+```
+
+A task log **never** writes an article and never runs `kb compiled`. It is
+unverified scratch, and a green `kb fresh` means somebody reviewed the articles.
+Let a log become KB content without that and the gate stops meaning anything. So
+`kb-harvest` only proposes itemized deltas, `kb-compile` accepts or rejects each
+one as evidence rather than authority, and then the notes are deleted.
+
+The log's value to the KB is the why. The diff already carries the what, and
+the alternative somebody tried and rejected is written down nowhere else. Most
+tasks produce nothing durable, and that is the expected result.
+
+Harvests are reviewed even when `kb fresh` is green. The commit gate compiles work
+as it lands, so by the time a task finishes its files are usually already clean.
 
 ## Per-file state, deliberately
 
@@ -333,7 +359,8 @@ Claude Code plugin, they read [`SPEC.md`](SPEC.md) as their shared reference.
 |---|---|
 | `kb-init` | A repo with no KB. Surveys it, writes the config, wires the gates into the build and CI, records the first compile. |
 | `kb-catchup` | A large orphan baseline. Clusters undocumented files into subsystems by **co-change**, writes one article each, ratchets down in verified batches. |
-| `kb-compile` | Before committing. Uses `kb fresh` output as the exact work list, reconciles each named article, records the review. |
+| `kb-compile` | Before committing. Uses `kb fresh` output as the exact work list, reconciles each named article, reviews finished task notes, records the review. |
+| `kb-harvest` | When a task finishes. Turns its notes into proposed deltas for `kb-compile`, or says nothing durable came out of it. |
 | `kb-compress` | Quarterly. Deduplicates, collapses decision logs into rules, resizes articles, strengthens edges. |
 
 `hooks/` ships a `PreToolUse` gate that blocks `git commit` while `kb fresh` is

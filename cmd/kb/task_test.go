@@ -277,3 +277,37 @@ func TestTaskDrop(t *testing.T) {
 	}
 	r.ok("task", "start", "next") // dropping the current task clears CURRENT
 }
+
+// The hook pays for the resume view once a session, and after that spends one
+// line, which is what reaches an agent that has just been compacted.
+func TestContextHookSurfacesTheTaskCheaply(t *testing.T) {
+	r := newRepo(t)
+	r.ok("task", "start", "hooked", "--goal", "the goal")
+	hook, err := filepath.Abs("../../hooks/kb-context.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := t.TempDir()
+	prompt := func() string {
+		t.Helper()
+		cmd := exec.Command("bash", hook)
+		cmd.Env = append(os.Environ(), "CLAUDE_PROJECT_DIR="+r.dir, "TMPDIR="+tmp,
+			"PATH="+filepath.Dir(kbBin)+":"+os.Getenv("PATH"))
+		cmd.Stdin = strings.NewReader(`{"session_id":"s1","prompt":"carry on"}`)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("hook: %v: %s", err, out)
+		}
+		return string(out)
+	}
+	mustContain(t, prompt(), "Goal: the goal", "the first prompt gets the resume view")
+	later := prompt()
+	mustContain(t, later, "Current task:", "later prompts still name the task")
+	mustContain(t, later, "kb task context", "and how to get it back")
+	mustNotContain(t, later, "Goal:", "repeating the view spends its budget every message")
+
+	r.ok("task", "finish")
+	if out := prompt(); strings.Contains(out, "Current task:") {
+		t.Errorf("hook still names a finished task: %s", out)
+	}
+}
