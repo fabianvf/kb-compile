@@ -425,3 +425,15 @@ func TestContextHookSuggestsATaskOnce(t *testing.T) {
 	mustContain(t, prompt(), "kb task start", "a new session hears about tasks")
 	mustNotContain(t, prompt(), "kb task start", "once a session, not on every message")
 }
+
+// A version string here pins every install to its cached copy until someone
+// remembers to change it. Without one, Claude Code versions the plugin by commit.
+func TestPluginManifestPinsNoVersion(t *testing.T) {
+	data, err := os.ReadFile("../../.claude-plugin/plugin.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"version"`) {
+		t.Fatalf("plugin.json sets a version, so pushes stop reaching installs:\n%s", data)
+	}
+}

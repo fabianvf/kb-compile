@@ -397,6 +397,12 @@ to install it. The plugin is for your own machine, across every repo you open:
 /plugin install kb-compile
 ```
 
+`plugin.json` has no `version` on purpose. Claude Code then versions the plugin by
+commit, so every push to `main` is an update and nobody has to remember a bump. A
+pinned string would keep every install on its cached copy until the string changed.
+Auto-update is off by default for a marketplace like this one, so run
+`claude plugin update kb-compile@kb-compile`, or turn it on under `/plugin`.
+
 Both at once is harmless: the gate runs twice and the digest still appears once.
 Run `kb install` again after upgrading.
 
