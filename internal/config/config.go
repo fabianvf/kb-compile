@@ -527,7 +527,7 @@ func (c *Config) finalize() error {
 func (c *Config) ReverseIndexPath() string    { return c.KBDir + "/.reverse-index.json" }
 func (c *Config) OrphanBaselinePath() string  { return c.KBDir + "/.orphans-baseline.txt" }
 func (c *Config) DeadEndBaselinePath() string { return c.KBDir + "/.dead-ends-baseline.txt" }
-func (c *Config) ManifestPath() string        { return c.KBDir + "/.compiled-sources.json" }
+func (c *Config) ManifestPath() string        { return c.KBDir + "/.compiled-sources" }
 func (c *Config) DigestPath() string          { return c.KBDir + "/DIGEST.md" }
 func (c *Config) IndexPath() string           { return c.KBDir + "/INDEX.md" }
 

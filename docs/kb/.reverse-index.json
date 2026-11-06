@@ -8,7 +8,8 @@
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
-    "internal/kb/linkcommand_test.go"
+    "internal/kb/linkcommand_test.go",
+    "internal/kb/manifest_test.go"
    ]
   },
   "cmd/kb/main.go": {
@@ -51,7 +52,8 @@
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
-    "internal/kb/linkcommand_test.go"
+    "internal/kb/linkcommand_test.go",
+    "internal/kb/manifest_test.go"
    ]
   },
   "internal/imports/imports.go": {
@@ -112,7 +114,8 @@
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
-    "internal/kb/linkcommand_test.go"
+    "internal/kb/linkcommand_test.go",
+    "internal/kb/manifest_test.go"
    ]
   },
   "internal/kb/checks.go": {
@@ -126,7 +129,8 @@
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
-    "internal/kb/linkcommand_test.go"
+    "internal/kb/linkcommand_test.go",
+    "internal/kb/manifest_test.go"
    ]
   },
   "internal/kb/digest.go": {
@@ -140,7 +144,8 @@
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
-    "internal/kb/linkcommand_test.go"
+    "internal/kb/linkcommand_test.go",
+    "internal/kb/manifest_test.go"
    ]
   },
   "internal/kb/eval.go": {
@@ -154,7 +159,8 @@
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
-    "internal/kb/linkcommand_test.go"
+    "internal/kb/linkcommand_test.go",
+    "internal/kb/manifest_test.go"
    ]
   },
   "internal/kb/fresh.go": {
@@ -168,7 +174,8 @@
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
-    "internal/kb/linkcommand_test.go"
+    "internal/kb/linkcommand_test.go",
+    "internal/kb/manifest_test.go"
    ]
   },
   "internal/kb/install.go": {
@@ -182,7 +189,8 @@
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
-    "internal/kb/linkcommand_test.go"
+    "internal/kb/linkcommand_test.go",
+    "internal/kb/manifest_test.go"
    ]
   },
   "internal/kb/links.go": {
@@ -196,7 +204,8 @@
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
-    "internal/kb/linkcommand_test.go"
+    "internal/kb/linkcommand_test.go",
+    "internal/kb/manifest_test.go"
    ]
   },
   "internal/kb/owners.go": {
@@ -210,7 +219,8 @@
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
-    "internal/kb/linkcommand_test.go"
+    "internal/kb/linkcommand_test.go",
+    "internal/kb/manifest_test.go"
    ]
   },
   "internal/kb/ratchet.go": {
@@ -224,7 +234,8 @@
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
-    "internal/kb/linkcommand_test.go"
+    "internal/kb/linkcommand_test.go",
+    "internal/kb/manifest_test.go"
    ]
   },
   "internal/kb/read.go": {
@@ -238,7 +249,8 @@
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
-    "internal/kb/linkcommand_test.go"
+    "internal/kb/linkcommand_test.go",
+    "internal/kb/manifest_test.go"
    ]
   },
   "internal/kb/reverseindex.go": {
@@ -252,7 +264,8 @@
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
-    "internal/kb/linkcommand_test.go"
+    "internal/kb/linkcommand_test.go",
+    "internal/kb/manifest_test.go"
    ]
   },
   "internal/kb/task.go": {
@@ -266,7 +279,8 @@
     "internal/kb/digest_test.go",
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
-    "internal/kb/linkcommand_test.go"
+    "internal/kb/linkcommand_test.go",
+    "internal/kb/manifest_test.go"
    ]
   },
   "internal/repo/git.go": {
@@ -281,6 +295,7 @@
     "internal/kb/golden_test.go",
     "internal/kb/judgement_test.go",
     "internal/kb/linkcommand_test.go",
+    "internal/kb/manifest_test.go",
     "internal/repo/git_test.go"
    ]
   }

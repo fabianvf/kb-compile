@@ -189,18 +189,31 @@ between a gate and a formality.
 **Freshness state is per file, not a commit stamp.** The rejected design was a
 single `last_compiled_commit` diffed against the tree, which made every MERGE
 look like drift: bringing trunk into a branch changes the tree, so the branch
-owed a compile for files reviewed on the other side. Per-file hashes merge the
-way git merges everything else, and two branches compiling the same file
-conflict correctly because one of their reviews is about to lose.
+owed a compile for files reviewed on the other side.
+
+**The manifest is three lines per file because of how git merges.** The JSON
+it replaced (2026-11-06) conflicted for two branches recording neighbouring
+files, since git conflicts on touching lines and sorted order puts a
+directory's files together. Adding after the last entry conflicted too, by
+moving its comma. A hash line between a `file` and an `end` line merges
+cleanly against changes to any other entry, and `TestManifestMergesReviewsOfDifferentFiles`
+merges it with real git. Blank-line separators were tried and rejected:
+identical lines let the diff align an insert against the wrong blank.
+
+**Same-file reviews union rather than conflict.** `kb install` writes
+`.compiled-sources merge=union`, and a file is fresh when any recorded hash
+matches. That is sound only because the gate re-hashes every run, so a hash for
+content that no longer exists makes the file stale and never passes it. Whether
+GitHub's merge button honours the attribute was not tested as of 2026-11-06.
 
 **A conflicted manifest names the situation and rules out the obvious fix.**
-Per-file state means two branches compiling the same file conflict on purpose,
-so hitting one is normal rather than exceptional. Resolving it with `kb
-compiled` would re-record every file on both sides as reviewed, including the
-ones nobody looked at, which is the one use that defeats the gate.
+Without the attribute, two branches recording the same file still conflict.
+The error says to keep both sides' lines. Resolving it with `kb compiled` would
+re-record every file on both sides as reviewed, including the ones nobody looked
+at, which is the one use that defeats the gate.
 
 **A missing manifest FAILS rather than skipping.** The rejected alternative,
-treating absence as "nothing to check", makes `rm .compiled-sources.json` a
+treating absence as "nothing to check", makes `rm .compiled-sources` a
 one-line bypass of the whole gate. Same shape as a test suite that passes
 because it found no tests.
 

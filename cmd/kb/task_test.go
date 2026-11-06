@@ -315,7 +315,16 @@ func TestContextHookSurfacesTheTaskCheaply(t *testing.T) {
 func TestInstallIsCommittableAndIdempotent(t *testing.T) {
 	r := newRepo(t)
 	r.write(".claude/settings.json", `{"model":"x","hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"mine.sh"}]}]}}`)
+	r.write(".gitattributes", "*.png binary")
 	r.ok("install")
+
+	attrs, err := os.ReadFile(filepath.Join(r.dir, ".gitattributes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(attrs) != "*.png binary\n"+kb.ManifestAttribute+"\n" {
+		t.Errorf("the union attribute was not appended to the existing file:\n%s", attrs)
+	}
 
 	settings := filepath.Join(r.dir, ".claude/settings.json")
 	first, err := os.ReadFile(settings)

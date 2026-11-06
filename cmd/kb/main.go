@@ -59,7 +59,8 @@ USAGE
                          writes the KB. ` + "`kb task --help`" + ` for details.
   kb install             Write the commit gate, the context hook and the skills
                          into .claude/ for committing, so a teammate gets them
-                         by cloning. Run it again after upgrading kb.
+                         by cloning, and the manifest's merge=union line into
+                         .gitattributes. Run it again after upgrading kb.
   kb version             The release stamped in at build time, else the module
                          version Go embedded, else "dev". A version that cannot
                          identify a build on its own carries a hash of the
@@ -443,7 +444,7 @@ func main() {
 				"version, so the commit gate cannot tell a teammate which kb to "+
 				"get. Run this from a release build to pin it.\n", kbVersion())
 		}
-		fmt.Println("kb install: commit .claude/ so teammates get these by cloning. " +
+		fmt.Println("kb install: commit .claude/ and .gitattributes so teammates get these by cloning. " +
 			"They still need `kb` on PATH, and the commit gate tells them so.")
 		return
 	}

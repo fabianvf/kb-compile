@@ -91,7 +91,43 @@ func Install(version string) ([]string, error) {
 			return report, err
 		}
 	}
-	return report, put(settingsPath, settings, 0o644)
+	if err := put(settingsPath, settings, 0o644); err != nil {
+		return report, err
+	}
+	line, err := addGitAttribute(".gitattributes")
+	if line != "" {
+		report = append(report, line)
+	}
+	return report, err
+}
+
+// ManifestAttribute lets two branches that recorded the same file both keep
+// their hash. A pattern with no slash matches at any depth, so this needs no
+// config, and install runs before there is one.
+const ManifestAttribute = ".compiled-sources merge=union"
+
+// addGitAttribute appends ManifestAttribute unless the file already has it,
+// keeping whatever else is there.
+func addGitAttribute(p string) (string, error) {
+	old, err := os.ReadFile(p)
+	if err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+	for _, l := range strings.Split(string(old), "\n") {
+		if strings.TrimSpace(l) == ManifestAttribute {
+			return "unchanged " + p, nil
+		}
+	}
+	data := old
+	if len(data) > 0 && !bytes.HasSuffix(data, []byte("\n")) {
+		data = append(data, '\n')
+	}
+	data = append(data, ManifestAttribute+"\n"...)
+	state := "updated "
+	if len(old) == 0 {
+		state = "wrote "
+	}
+	return state + p, os.WriteFile(p, data, 0o644)
 }
 
 // mergedHookSettings adds the two hooks to a settings file and leaves everything

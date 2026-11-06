@@ -49,7 +49,7 @@ And it generates `.reverse-index.json`: source path → `{articles, tests}`.
 That answers "I touched this file: what do I read, and where do the test
 updates go?" as a lookup instead of a grep.
 
-**`kb fresh`** validates *attention*. `.compiled-sources.json` holds a content
+**`kb fresh`** validates *attention*. `.compiled-sources` holds a content
 hash per KB-owned file, recorded at the last compile. The check fails when any
 of them differs from what was reviewed, and names the owning articles so the
 re-read is scoped rather than "go read the KB". It ends by printing the
@@ -127,7 +127,7 @@ perfectly-bounded articles full of restated code scores well here.
 Some generated files are **derived**. `.reverse-index.json` is computed from
 the KB, so stale means wrong, and a hook may rewrite it freely.
 
-`.compiled-sources.json` is not derived. It records a **judgement** - *these
+`.compiled-sources` is not derived. It records a **judgement** - *these
 articles were checked against this content*. Regenerate a judgement
 automatically and the check passes always and means nothing.
 
@@ -183,13 +183,19 @@ reviewed on the other side. Three consecutive merge-downs produced three
 stamp-only "reviewed, already documented" commits. The check was measuring
 merges, not drift.
 
-Per-file hashes fix that by construction. Two branches compiling different
-files update disjoint entries and git merges them like any other file. Two
-compiling the *same* file conflict - correctly, because both reviewed it and
-one is about to lose.
+Per-file hashes fix that by construction, if they merge. Git conflicts on
+touching lines, so a plain `"path": "hash"` per line conflicted whenever two
+branches recorded neighbouring files, which is most of the time on one
+subsystem. Each entry is three lines instead, with the hash between two lines
+that only change with the path, and two branches recording different files
+merge cleanly.
 
-The manifest is therefore a flat, sorted, one-entry-per-line map with no header
-object. The shape *is* the design.
+Two branches recording the *same* file keep both hashes under `merge=union`,
+which `kb install` adds to `.gitattributes`. The gate re-hashes every run, so a
+file is fresh when either review matches what is there and stale when the merge
+produced content neither side read. Whether GitHub's merge button honours the
+attribute is untested. Without it, resolve the conflict by keeping both sides'
+lines.
 
 ## Configuration
 
@@ -385,7 +391,7 @@ clone:
 
 ```bash
 kb install
-git add .claude
+git add .claude .gitattributes
 ```
 
 Enabling a plugin in a committed settings file does not download it for

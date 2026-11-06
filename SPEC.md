@@ -310,7 +310,7 @@ Because it is derived it can never disagree with the articles. A
 hand-maintained summary would drift, and a drifted routing table sends agents
 confidently to the wrong place.
 
-### `.compiled-sources.json` - a judgement
+### `.compiled-sources` - a judgement
 
 A content hash per KB-owned source file, recorded at the last compile. It
 asserts *these articles were checked against this content*.
@@ -319,10 +319,15 @@ asserts *these articles were checked against this content*.
 `--write` bundled into another target. The moment it regenerates on its own,
 the check passes always and asserts nothing.
 
-It is a flat, sorted, one-entry-per-line map with no header object, and the
-shape is the design: two branches compiling different files touch disjoint
-lines and merge cleanly; two compiling the same file conflict, correctly,
-because both reviewed it and one is about to lose.
+It is sorted text, three lines per file (`file <path>`, `sha256 <hash>`,
+`end <path>`), and the shape is the design. Git conflicts on touching lines as
+well as on the same line, so the hash line sits between two lines that only
+change with the path. Two branches compiling different files then merge
+cleanly, neighbouring files included. Two compiling the same file keep both
+hashes under `merge=union` in `.gitattributes`, which `kb install` writes. A
+file is fresh when any recorded hash matches its content, so keeping both can
+make a file stale but never pass one nobody reviewed. A `.compiled-sources.json`
+from older builds is still read, and the next `kb compiled` replaces it.
 
 **What it cannot do:** tell whether the compile was any good. `kb compiled`
 with no reading is indistinguishable from a careful pass. The gate buys you

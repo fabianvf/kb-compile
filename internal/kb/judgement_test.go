@@ -12,11 +12,11 @@ package kb
 // assertion that still passes when the behaviour flips is documentation.
 
 import (
-	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -530,8 +530,8 @@ func TestMissingBaselineDoesNotRecommendTheBypass(t *testing.T) {
 // fix: `kb compiled` would resolve it by re-recording every file on both sides
 // as reviewed, including the ones nobody looked at.
 func TestManifestConflictIsExplained(t *testing.T) {
-	path := filepath.Join(t.TempDir(), ".compiled-sources.json")
-	conflicted := "{\n<<<<<<< HEAD\n  \"a.go\": \"aaa\"\n=======\n  \"a.go\": \"bbb\"\n>>>>>>> other\n}\n"
+	path := filepath.Join(t.TempDir(), ".compiled-sources")
+	conflicted := "file a.go\n<<<<<<< HEAD\nsha256 aaa\n=======\nsha256 bbb\n>>>>>>> other\nend a.go\n"
 	if err := os.WriteFile(path, []byte(conflicted), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -633,8 +633,8 @@ func TestBaselineCommentsAreTrimmedFirst(t *testing.T) {
 // to be told not to reach for `kb compiled`.
 func TestHalfResolvedManifestIsStillExplained(t *testing.T) {
 	for _, leftover := range []string{"=======", ">>>>>>> other"} {
-		path := filepath.Join(t.TempDir(), ".compiled-sources.json")
-		body := "{\n  \"a.go\": \"aaa\"\n" + leftover + "\n}\n"
+		path := filepath.Join(t.TempDir(), ".compiled-sources")
+		body := "file a.go\nsha256 aaa\n" + leftover + "\nend a.go\n"
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -1215,7 +1215,7 @@ func TestOwnersAnswersWhatWillIBreak(t *testing.T) {
 // The granularity of the RECORD has to match the granularity of the CHECK.
 func TestMergeManifestRecordsOnlyWhatWasReviewed(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "manifest.json")
+	path := filepath.Join(dir, ".compiled-sources")
 	if err := WriteManifest(path, map[string]string{
 		"lib/a.dart": "old-a", "lib/b.dart": "old-b",
 	}); err != nil {
@@ -1230,19 +1230,15 @@ func TestMergeManifestRecordsOnlyWhatWasReviewed(t *testing.T) {
 	if n != 1 {
 		t.Errorf("reported %d files recorded, want 1", n)
 	}
-	got := map[string]string{}
-	data, err := os.ReadFile(path)
+	got, err := ReadManifest(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got["lib/a.dart"] != "new-a" {
+	if !slices.Equal(got["lib/a.dart"], []string{"new-a"}) {
 		t.Error("the reviewed file was not recorded, so an honest partial " +
 			"review still leaves the gate red")
 	}
-	if got["lib/b.dart"] != "old-b" {
+	if !slices.Equal(got["lib/b.dart"], []string{"old-b"}) {
 		t.Errorf("the UNreviewed file was recorded as reviewed (%q); a partial "+
 			"record must never assert a judgement nobody made", got["lib/b.dart"])
 	}
@@ -1251,8 +1247,7 @@ func TestMergeManifestRecordsOnlyWhatWasReviewed(t *testing.T) {
 	if _, err := MergeManifest(path, current, []string{"lib/gone.dart"}); err != nil {
 		t.Fatal(err)
 	}
-	data, _ = os.ReadFile(path)
-	_ = json.Unmarshal(data, &got)
+	got, _ = ReadManifest(path)
 	if _, ok := got["lib/gone.dart"]; ok {
 		t.Error("recorded a hash for a file that is not owned or not present")
 	}

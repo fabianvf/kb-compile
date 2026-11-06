@@ -541,7 +541,7 @@ func TestFreshOmitsUntrackedFilesAnArticleAlreadyClaims(t *testing.T) {
 // caller had already paid for the working-tree walk that computed the list.
 func TestFreshReportsUnclaimedWhenTheManifestIsMissing(t *testing.T) {
 	r := newRepo(t)
-	if err := os.Remove(filepath.Join(r.dir, "docs/kb/.compiled-sources.json")); err != nil {
+	if err := os.Remove(filepath.Join(r.dir, "docs/kb/.compiled-sources")); err != nil {
 		t.Fatal(err)
 	}
 	r.write("app/newsub/deploy.py", "x = 1\n")
